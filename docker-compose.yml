@@ -1,0 +1,10 @@
+services:
+  cyberpunk-red-support:
+    build:
+      context: .
+      args:
+        VITE_API_URL: https://itl-app.vps-kinghost.net
+    image: cyberpunk-red-support:latest
+    ports:
+      - "8080:80"
+    restart: unless-stopped
