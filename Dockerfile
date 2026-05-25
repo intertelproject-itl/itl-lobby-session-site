@@ -7,7 +7,7 @@ RUN npm ci
 
 COPY . .
 
-ARG VITE_API_URL=https://itl-app.vps-kinghost.net
+ARG VITE_API_URL=https://itl-app.vps-kinghost.net:5000
 ARG VITE_UPLOADS_URL
 ENV VITE_API_URL=$VITE_API_URL
 ENV VITE_UPLOADS_URL=$VITE_UPLOADS_URL

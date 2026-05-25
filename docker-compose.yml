@@ -3,8 +3,8 @@ services:
     build:
       context: .
       args:
-        VITE_API_URL: https://itl-app.vps-kinghost.net
+        VITE_API_URL: https://itl-app.vps-kinghost.net/api
     image: cyberpunk-red-support:latest
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:8080"
     restart: unless-stopped
