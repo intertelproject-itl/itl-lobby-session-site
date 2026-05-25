@@ -96,6 +96,7 @@ img { max-width: 100%; display: block; }
   flex-direction: column;
   position: relative;
   z-index: 2;
+  padding-bottom: 3.25rem;
 }
 
 .page-container {
@@ -125,29 +126,45 @@ img { max-width: 100%; display: block; }
   cursor: pointer;
 }
 
+.topbar-actions {
+  position: absolute;
+  right: max(1rem, calc((100vw - 1180px) / 2));
+  bottom: 0.5rem;
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: end !important;
+  z-index: 2;
+}
+
 .logout-image-button img {
-  width: 42px;
-  height: 42px;
+  width: 32px;
+  height: 32px;
   object-fit: contain;
   opacity: 0.82;
   filter: drop-shadow(0 0 3px rgba(255, 208, 0, 0.22)) contrast(1.08) saturate(0.9);
 }
 
 .ambient-player {
-  position: absolute;
-  right: max(1rem, calc((100vw - 1180px) / 2));
-  bottom: 0.55rem;
-  width: min(260px, 30vw);
+  position: fixed;
+  left: 0.75rem;
+  bottom: 0.35rem;
+  z-index: 10;
+  width: min(210px, 24vw);
   display: grid;
-  grid-template-columns: 26px minmax(82px, 1fr) 58px;
-  gap: 0.35rem;
+  grid-template-columns: 22px minmax(68px, 1fr) 42px;
+  gap: 0.28rem;
   align-items: center;
   min-width: 0;
+  padding: 0.3rem 0.35rem;
+  border-radius: 8px;
+  background: rgba(6, 6, 6, 0.76);
+  backdrop-filter: blur(10px);
 }
 
 .ambient-player-button {
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   display: grid;
   place-items: center;
   padding: 0;
@@ -163,23 +180,23 @@ img { max-width: 100%; display: block; }
   width: 0;
   height: 0;
   margin-left: 3px;
-  border-top: 6px solid transparent;
-  border-bottom: 6px solid transparent;
-  border-left: 10px solid var(--primary);
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 8px solid var(--primary);
 }
 
 .ambient-icon-pause {
-  width: 11px;
-  height: 14px;
-  border-left: 4px solid var(--primary);
-  border-right: 4px solid var(--primary);
+  width: 9px;
+  height: 12px;
+  border-left: 3px solid var(--primary);
+  border-right: 3px solid var(--primary);
 }
 
 .ambient-player-marquee {
   min-width: 0;
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 0.62rem;
+  font-size: 0.56rem;
   font-weight: 800;
   text-transform: uppercase;
   white-space: nowrap;
@@ -193,7 +210,7 @@ img { max-width: 100%; display: block; }
 }
 
 .ambient-player-volume {
-  width: 58px;
+  width: 42px;
   accent-color: var(--primary);
   cursor: pointer;
 }
@@ -645,34 +662,35 @@ img { max-width: 100%; display: block; }
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 900px) {
   .brand-bar {
-    grid-template-columns: 1fr;
-    justify-items: center;
+    grid-template-columns: 1fr !important;
+    justify-items: center !important;
+    padding-top: 0 !important;
+    padding-bottom: 0.25rem !important;
   }
 
-  .brand-bar > div {
-    justify-content: center !important;
+  .topbar-actions {
+    right: 0.75rem;
+    bottom: 0.5rem;
   }
 
   .brand-bar img {
-    width: min(94vw, 520px) !important;
+    width: min(96vw, 620px) !important;
     min-width: 0 !important;
-    height: 118px !important;
+    height: 150px !important;
   }
 
   .ambient-player {
-    position: fixed;
-    left: 0.75rem;
-    right: auto;
-    bottom: 0.75rem;
-    z-index: 5;
-    width: min(280px, calc(100vw - 1.5rem));
-    grid-template-columns: 26px minmax(92px, 1fr) 58px;
-    padding: 0.4rem 0.45rem;
-    border-radius: 8px;
-    background: rgba(6, 6, 6, 0.76);
-    backdrop-filter: blur(10px);
+    width: min(220px, calc(100vw - 1.5rem)) !important;
+    grid-template-columns: 22px minmax(72px, 1fr) 42px !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .brand-bar img {
+    width: min(98vw, 560px) !important;
+    height: 138px !important;
   }
 
   .sheet-row {

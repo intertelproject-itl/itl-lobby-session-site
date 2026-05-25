@@ -1,5 +1,4 @@
 import { Link } from 'react-router-dom';
-import { AmbientAudioPlayer } from '../audio/AmbientAudioPlayer';
 import { useAuthStore } from '../../../scripts/store/auth.store';
 
 export function TopBar() {
@@ -15,7 +14,7 @@ export function TopBar() {
           gridTemplateColumns: 'minmax(88px, 1fr) auto minmax(88px, 1fr)',
           alignItems: 'center',
           gap: '1rem',
-          padding: '0.9rem 0 1rem',
+          padding: '0.15rem 0 0.2rem',
         }}
       >
         <span aria-hidden="true" />
@@ -24,33 +23,33 @@ export function TopBar() {
             src="/logo/intertel_corrido.png"
             alt="INTERTEL"
             style={{
-              width: 'min(72vw, 820px)',
-              minWidth: 320,
-              height: 140,
+              width: 'min(82vw, 980px)',
+              minWidth: 360,
+              height: 170,
               objectFit: 'contain',
             }}
           />
         </Link>
-        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', justifyContent: 'end', flexShrink: 0, minWidth: 0 }}>
-          <AmbientAudioPlayer />
-          {user ? (
-            <>
-              <span style={{ color: 'var(--text-muted)', display: 'none' }} className="desktop-user">{user.nickname}</span>
-              <button
-                onClick={signOut}
-                aria-label="Sair"
-                title="Sair"
-                className="logout-image-button"
-                style={{
-                  width: 58,
-                  height: 58,
-                }}
-              >
-                <img src="/icons/log-out.png" alt="" aria-hidden="true" />
-              </button>
-            </>
-          ) : null}
-        </div>
+        <span aria-hidden="true" />
+      </div>
+      <div className="topbar-actions">
+        {user ? (
+          <>
+            <span style={{ color: 'var(--text-muted)', display: 'none' }} className="desktop-user">{user.nickname}</span>
+            <button
+              onClick={signOut}
+              aria-label="Sair"
+              title="Sair"
+              className="logout-image-button"
+              style={{
+                width: 42,
+                height: 42,
+              }}
+            >
+              <img src="/icons/log-out.png" alt="" aria-hidden="true" />
+            </button>
+          </>
+        ) : null}
       </div>
     </header>
   );

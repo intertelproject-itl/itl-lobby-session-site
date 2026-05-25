@@ -5,6 +5,7 @@ import { router } from './app/router';
 import './design/theme/global.css';
 import './integrations/http/authInterceptor';
 import { ApiErrorModal } from './design/components/ui/ApiErrorModal';
+import { AmbientAudioPlayer } from './design/components/audio/AmbientAudioPlayer';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -14,6 +15,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       </video>
       <div className="app-background-overlay" aria-hidden="true" />
       <RouterProvider router={router} />
+      <AmbientAudioPlayer />
       <ApiErrorModal />
     </>
   </React.StrictMode>
