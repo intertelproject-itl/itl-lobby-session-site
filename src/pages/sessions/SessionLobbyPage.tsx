@@ -17,6 +17,8 @@ import {
   updateCharacterAttributes,
   updateCharacterSkills,
 } from '../../integrations/character/character.api';
+import { getInventoryAssets } from '../../integrations/inventory/inventory.api';
+import { InventoryAsset } from '../../integrations/inventory/inventory.types';
 import { useSessionDashboard } from '../../scripts/hooks/useSessionDashboard';
 import { useAuthStore } from '../../scripts/store/auth.store';
 
@@ -49,7 +51,7 @@ export function SessionLobbyPage() {
   const navigate = useNavigate();
   const userId = useAuthStore((state) => Number(state.user?.idUsuario ?? 0));
   const numericSessionId = Number(sessionId);
-  const { loading, session, character, inventory, needsCharacter } = useSessionDashboard(numericSessionId, userId);
+  const { loading, session, character, needsCharacter } = useSessionDashboard(numericSessionId, userId);
   const [activeModal, setActiveModal] = useState<SheetModal>(null);
   const [quickResult, setQuickResult] = useState<DisplayRoll | null>(null);
   const [pendingRoll, setPendingRoll] = useState<DisplayRoll | null>(null);
@@ -62,6 +64,8 @@ export function SessionLobbyPage() {
   const [updatingAttributes, setUpdatingAttributes] = useState(false);
   const [updatingSkills, setUpdatingSkills] = useState(false);
   const [showUpdateSuccess, setShowUpdateSuccess] = useState(false);
+  const [inventory, setInventory] = useState<InventoryAsset[]>([]);
+  const [inventoryLoading, setInventoryLoading] = useState(false);
 
   const sessionBriefing = session?.Briefing ?? session?.briefing ?? session?.resumo;
 
@@ -224,6 +228,35 @@ export function SessionLobbyPage() {
       active = false;
     };
   }, [activeModal, character, numericSessionId, userId]);
+
+  useEffect(() => {
+    if (!character || activeModal !== 'inventory') return;
+
+    let active = true;
+    const currentCharacter = character;
+
+    async function refreshInventory() {
+      setInventoryLoading(true);
+
+      try {
+        const assets = await getInventoryAssets(numericSessionId, currentCharacter.id);
+
+        if (active) {
+          setInventory(assets);
+        }
+      } finally {
+        if (active) {
+          setInventoryLoading(false);
+        }
+      }
+    }
+
+    refreshInventory();
+
+    return () => {
+      active = false;
+    };
+  }, [activeModal, character, numericSessionId]);
 
   useEffect(() => {
     if (rollCooldown <= 0) return;
@@ -390,7 +423,9 @@ export function SessionLobbyPage() {
                   onRoll={(key, value) => rollSheetValue(key, value)}
                 />
               ) : null}
-              {activeModal === 'inventory' ? <InventoryGallery assets={inventory} onSelect={() => undefined} /> : null}
+              {activeModal === 'inventory' ? (
+                <InventoryGallery assets={inventory} loading={inventoryLoading} onSelect={() => undefined} />
+              ) : null}
             </div>
           </Modal>
         ) : null}
