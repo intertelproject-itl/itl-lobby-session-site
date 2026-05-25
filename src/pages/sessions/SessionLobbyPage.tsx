@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { AppShell } from '../../design/components/layout/AppShell';
 import { PageContainer } from '../../design/components/layout/PageContainer';
@@ -36,6 +36,7 @@ type DisplayRoll = {
 const quickDice: QuickDie[] = [8, 10, 20, 100];
 const rollCooldownSeconds = 10;
 const rollRevealDelayMs = 2000;
+const diceRollVolume = 0.18;
 const rollScrambleChars = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ#@$%&*+-?';
 const sessionCoverImage = '/sessionsPublic/Cyberpunk_2077.jpeg';
 const matrixLines = [
@@ -66,6 +67,7 @@ export function SessionLobbyPage() {
   const [showUpdateSuccess, setShowUpdateSuccess] = useState(false);
   const [inventory, setInventory] = useState<InventoryAsset[]>([]);
   const [inventoryLoading, setInventoryLoading] = useState(false);
+  const diceRollAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const sessionBriefing = session?.Briefing ?? session?.briefing ?? session?.resumo;
 
@@ -79,11 +81,22 @@ export function SessionLobbyPage() {
     });
   }
 
+  function playDiceRollSound() {
+    const audio = diceRollAudioRef.current;
+
+    if (!audio) return;
+
+    audio.volume = diceRollVolume;
+    audio.currentTime = 0;
+    void audio.play().catch(() => undefined);
+  }
+
   function rollQuickDie(die: QuickDie) {
     if (rollCooldown > 0) return;
 
     const nextRoll = { die, value: Math.floor(Math.random() * die) + 1 };
 
+    playDiceRollSound();
     setPendingRoll(nextRoll);
     setRollCooldown(rollCooldownSeconds);
   }
@@ -99,6 +112,7 @@ export function SessionLobbyPage() {
       total: d20 + value,
     };
 
+    playDiceRollSound();
     setPendingRoll(nextRoll);
     setActiveModal(null);
     setRollCooldown(rollCooldownSeconds);
@@ -295,6 +309,7 @@ export function SessionLobbyPage() {
 
   return (
     <AppShell>
+      <audio ref={diceRollAudioRef} src="/mp3/dice-roll.mp3" preload="auto" />
       <PageContainer>
         <div className="session-page-layout">
           <div className="session-main-stack">

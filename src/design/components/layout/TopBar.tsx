@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { AmbientAudioPlayer } from '../audio/AmbientAudioPlayer';
 import { useAuthStore } from '../../../scripts/store/auth.store';
 
 export function TopBar() {
@@ -30,7 +31,8 @@ export function TopBar() {
             }}
           />
         </Link>
-        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', justifyContent: 'end', flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', justifyContent: 'end', flexShrink: 0, minWidth: 0 }}>
+          <AmbientAudioPlayer />
           {user ? (
             <>
               <span style={{ color: 'var(--text-muted)', display: 'none' }} className="desktop-user">{user.nickname}</span>
