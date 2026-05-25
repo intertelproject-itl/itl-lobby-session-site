@@ -656,14 +656,23 @@ img { max-width: 100%; display: block; }
   }
 
   .brand-bar img {
-    width: min(88vw, 420px) !important;
+    width: min(94vw, 520px) !important;
     min-width: 0 !important;
-    height: 86px !important;
+    height: 118px !important;
   }
 
   .ambient-player {
-    position: static;
-    width: min(320px, 88vw);
+    position: fixed;
+    left: 0.75rem;
+    right: auto;
+    bottom: 0.75rem;
+    z-index: 5;
+    width: min(280px, calc(100vw - 1.5rem));
+    grid-template-columns: 26px minmax(92px, 1fr) 58px;
+    padding: 0.4rem 0.45rem;
+    border-radius: 8px;
+    background: rgba(6, 6, 6, 0.76);
+    backdrop-filter: blur(10px);
   }
 
   .sheet-row {

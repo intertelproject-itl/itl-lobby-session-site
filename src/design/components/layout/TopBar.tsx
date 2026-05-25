@@ -24,9 +24,9 @@ export function TopBar() {
             src="/logo/intertel_corrido.png"
             alt="INTERTEL"
             style={{
-              width: 'min(62vw, 680px)',
-              minWidth: 280,
-              height: 112,
+              width: 'min(72vw, 820px)',
+              minWidth: 320,
+              height: 140,
               objectFit: 'contain',
             }}
           />
