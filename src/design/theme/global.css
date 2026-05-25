@@ -278,6 +278,11 @@ img { max-width: 100%; display: block; }
   align-content: start;
 }
 
+.session-briefing-text {
+  white-space: pre-line;
+  line-height: 1.6;
+}
+
 .session-back-link {
   display: block;
   margin-top: auto;
@@ -576,6 +581,7 @@ img { max-width: 100%; display: block; }
 .cy-subtitle {
   color: var(--text-muted);
   margin: 0;
+  white-space: pre-line;
 }
 
 .form-grid {

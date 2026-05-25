@@ -47,6 +47,10 @@ const matrixLines = [
   '01001110 01000101 01010100 01010010 01010101 01001110',
 ];
 
+function formatMultilineText(value?: string | null) {
+  return value?.replace(/\\r\\n|\\n|\\r/g, '\n').replace(/\r\n|\r/g, '\n') ?? '';
+}
+
 export function SessionLobbyPage() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
@@ -69,7 +73,7 @@ export function SessionLobbyPage() {
   const [inventoryLoading, setInventoryLoading] = useState(false);
   const diceRollAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  const sessionBriefing = session?.Briefing ?? session?.briefing ?? session?.resumo;
+  const sessionBriefing = formatMultilineText(session?.Briefing ?? session?.briefing ?? session?.resumo);
 
   function dispatchDiscordRoll(roll: DisplayRoll) {
     void sendDiscordRoll({
@@ -327,7 +331,7 @@ export function SessionLobbyPage() {
                   <div className="session-info-copy">
                     <div>
                       <h1 className="cy-title">{session.titulo}</h1>
-                      <p className="cy-subtitle">{sessionBriefing}</p>
+                      <p className="cy-subtitle session-briefing-text">{sessionBriefing}</p>
                     </div>
                     <p style={{ margin: 0, color: 'var(--text-muted)' }}>Mestre: {session.mestre}</p>
                   </div>
