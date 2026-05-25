@@ -590,11 +590,6 @@ img { max-width: 100%; display: block; }
   text-transform: uppercase;
 }
 
-.login-title-glitch {
-  font-family: 'Rubik Glitch', 'Orbitron', system-ui, sans-serif;
-  font-weight: 400;
-}
-
 .cy-subtitle {
   color: var(--text-muted);
   margin: 0;
