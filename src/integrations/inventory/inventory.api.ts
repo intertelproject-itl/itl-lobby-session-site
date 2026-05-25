@@ -2,6 +2,8 @@ import { apiClient } from '../http/apiClient';
 import '../http/authInterceptor';
 import { InventoryAsset, InventoryResponse } from './inventory.types';
 
+const imageExtensions = ['png', 'jpg'];
+
 function getUploadsBaseUrl() {
   const configuredUrl = import.meta.env.VITE_UPLOADS_URL;
 
@@ -33,9 +35,16 @@ async function findInventoryImageUrl(nome?: string | null) {
 
   const uploadsBaseUrl = getUploadsBaseUrl();
   const fileStem = encodeURIComponent(toImageFileStem(nome));
-  const imageUrl = `${uploadsBaseUrl}${fileStem}.jpg`;
 
-  return (await canLoadImage(imageUrl)) ? imageUrl : undefined;
+  for (const extension of imageExtensions) {
+    const imageUrl = `${uploadsBaseUrl}${fileStem}.${extension}`;
+
+    if (await canLoadImage(imageUrl)) {
+      return imageUrl;
+    }
+  }
+
+  return undefined;
 }
 
 export async function getInventoryAssets(_sessionId: number, characterId: number): Promise<InventoryAsset[]> {
