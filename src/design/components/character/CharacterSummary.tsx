@@ -5,6 +5,28 @@ import { updateCharacterPortrait } from '../../../integrations/character/charact
 import { Card } from '../ui/Card';
 
 const acceptedPortraitTypes = '.jpg,.jpeg,.png,.webp,.gif';
+const maxPortraitSizeBytes = 500 * 1024;
+const maxPortraitWidth = 1080;
+const maxPortraitHeight = 1920;
+
+function getImageSize(file: File) {
+  return new Promise<{ width: number; height: number }>((resolve, reject) => {
+    const image = new Image();
+    const objectUrl = URL.createObjectURL(file);
+
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve({ width: image.naturalWidth, height: image.naturalHeight });
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('Imagem invalida.'));
+    };
+
+    image.src = objectUrl;
+  });
+}
 
 function valueOrFallback(value: unknown) {
   return value === null || value === undefined || value === '' ? 'Nao informado' : String(value);
@@ -42,6 +64,18 @@ export function CharacterSummary({
     setPortraitError('');
 
     try {
+      if (file.size > maxPortraitSizeBytes) {
+        setPortraitError('A imagem deve ter no maximo 500kb.');
+        return;
+      }
+
+      const imageSize = await getImageSize(file);
+
+      if (imageSize.width > maxPortraitWidth || imageSize.height > maxPortraitHeight) {
+        setPortraitError('A imagem deve ter resolucao maxima de 1080 x 1920.');
+        return;
+      }
+
       await updateCharacterPortrait(Number(character.idPersonagem ?? character.id), Number(character.idSessao ?? character.sessionId), file);
       const nextVersion = Date.now();
       setPortraitSource(await findCharacterPortraitUrl(character, nextVersion));
@@ -80,6 +114,7 @@ export function CharacterSummary({
             <label className="character-portrait-upload">
               <input type="file" accept={acceptedPortraitTypes} onChange={changePortrait} />
               <span>Alterar retrato</span>
+              <small>JPG, PNG, WEBP ou GIF. Max 500kb, ate 1080 x 1920.</small>
             </label>
           ) : null}
           {portraitError ? <p className="auth-error-message">{portraitError}</p> : null}

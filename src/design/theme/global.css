@@ -972,6 +972,16 @@ img { max-width: 100%; display: block; }
   text-transform: uppercase;
 }
 
+.character-portrait-upload small {
+  display: block;
+  margin-top: 0.45rem;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1.4;
+  text-align: center;
+}
+
 .character-portrait-upload:hover span,
 .character-portrait-upload:focus-within span {
   border-color: var(--primary-hover);
