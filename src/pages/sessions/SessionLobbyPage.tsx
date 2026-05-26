@@ -19,11 +19,14 @@ import {
 } from '../../integrations/character/character.api';
 import { getInventoryAssets } from '../../integrations/inventory/inventory.api';
 import { InventoryAsset } from '../../integrations/inventory/inventory.types';
+import { getSessionPeople } from '../../integrations/sessions/sessions.api';
+import { Character } from '../../integrations/character/character.types';
+import { findCharacterPortraitUrl, defaultPortraitImage } from '../../integrations/character/portrait';
 import { useSessionDashboard } from '../../scripts/hooks/useSessionDashboard';
 import { useAuthStore } from '../../scripts/store/auth.store';
 
-type SheetModal = 'basic' | 'attributes' | 'skills' | 'inventory' | null;
-type QuickDie = 8 | 10 | 20 | 100;
+type SheetModal = 'basic' | 'attributes' | 'skills' | 'inventory' | 'contacts' | null;
+type QuickDie = 4 | 6 | 8 | 10 | 12 | 20 | 100;
 type RollTone = 'critical' | 'failure' | 'neutral';
 type DisplayRoll = {
   die: number;
@@ -33,7 +36,7 @@ type DisplayRoll = {
   total?: number;
 };
 
-const quickDice: QuickDie[] = [8, 10, 20, 100];
+const quickDice: QuickDie[] = [4, 6, 8, 10, 12, 20, 100];
 const rollCooldownSeconds = 10;
 const rollRevealDelayMs = 2000;
 const diceRollVolume = 0.18;
@@ -58,6 +61,9 @@ export function SessionLobbyPage() {
   const numericSessionId = Number(sessionId);
   const { loading, session, character, needsCharacter } = useSessionDashboard(numericSessionId, userId);
   const [activeModal, setActiveModal] = useState<SheetModal>(null);
+  const [sessionPanelCollapsed, setSessionPanelCollapsed] = useState(true);
+  const [sheetPanelCollapsed, setSheetPanelCollapsed] = useState(false);
+  const [briefingCollapsed, setBriefingCollapsed] = useState(true);
   const [quickResult, setQuickResult] = useState<DisplayRoll | null>(null);
   const [pendingRoll, setPendingRoll] = useState<DisplayRoll | null>(null);
   const [scrambleValue, setScrambleValue] = useState('--');
@@ -71,9 +77,28 @@ export function SessionLobbyPage() {
   const [showUpdateSuccess, setShowUpdateSuccess] = useState(false);
   const [inventory, setInventory] = useState<InventoryAsset[]>([]);
   const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [contacts, setContacts] = useState<Character[]>([]);
+  const [contactPortraits, setContactPortraits] = useState<Record<string, string>>({});
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [portraitVersion, setPortraitVersion] = useState(0);
   const diceRollAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const sessionBriefing = formatMultilineText(session?.Briefing ?? session?.briefing ?? session?.resumo);
+  const criticalStats = character ? [
+    { label: 'HP', current: character.hpAtual, maximum: character.hpMaximo },
+    { label: 'Armadura', current: character.protecaoArmaduraAtual, maximum: character.protecaoArmaduraMaximo },
+    { label: 'Sorte', current: character.sorteAtual, maximum: character.sorteMaxima },
+    { label: 'Humanidade', current: character.humanidadeAtual, maximum: character.humanidadeMaxima },
+  ] : [];
+  const criticalInjuries = character?.ferimentosCriticos ?? '...';
+
+  function formatCriticalValue(value: unknown) {
+    return value === null || value === undefined || value === '' ? '-' : String(value);
+  }
+
+  function getContactKey(person: Character) {
+    return `${person.idPersonagem}-${person.idUsuario}`;
+  }
 
   function dispatchDiscordRoll(roll: DisplayRoll) {
     void sendDiscordRoll({
@@ -277,6 +302,41 @@ export function SessionLobbyPage() {
   }, [activeModal, character, numericSessionId]);
 
   useEffect(() => {
+    if (activeModal !== 'contacts') return;
+
+    let active = true;
+
+    async function refreshContacts() {
+      setContactsLoading(true);
+
+      try {
+        const people = (await getSessionPeople(numericSessionId)).filter((person) => Number(person.idUsuario) !== userId);
+
+        if (active) {
+          setContacts(people);
+          setContactPortraits(
+            Object.fromEntries(
+              await Promise.all(
+                people.map(async (person) => [getContactKey(person), await findCharacterPortraitUrl(person, portraitVersion)])
+              )
+            )
+          );
+        }
+      } finally {
+        if (active) {
+          setContactsLoading(false);
+        }
+      }
+    }
+
+    refreshContacts();
+
+    return () => {
+      active = false;
+    };
+  }, [activeModal, numericSessionId, portraitVersion, userId]);
+
+  useEffect(() => {
     if (rollCooldown <= 0) return;
 
     const timeoutId = window.setTimeout(() => {
@@ -319,74 +379,147 @@ export function SessionLobbyPage() {
           <div className="session-main-stack">
             <div className="session-dashboard-grid">
               <Card className="session-transparent-card" style={{ marginTop: 0 }}>
-                <div className="session-info-panel">
-                  <div className="session-info-media">
-                    <img src={sessionCoverImage} alt="" className="session-info-image" />
-                    <div className="session-matrix-code" aria-hidden="true">
-                      {matrixLines.map((line) => (
-                        <span key={line}>{line}</span>
-                      ))}
-                    </div>
-                  </div>
-                  <div className="session-info-copy">
+                <div className={`session-info-panel ${sessionPanelCollapsed ? 'session-info-panel-collapsed' : 'session-info-panel-expanded'}`}>
+                  <div className="session-info-toolbar">
                     <div>
                       <h1 className="cy-title">{session.titulo}</h1>
-                      <p className="cy-subtitle session-briefing-text">{sessionBriefing}</p>
+                      <p style={{ margin: 0, color: 'var(--text-muted)' }}>Mestre: {session.mestre}</p>
                     </div>
-                    <p style={{ margin: 0, color: 'var(--text-muted)' }}>Mestre: {session.mestre}</p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="session-panel-toggle session-panel-icon-button"
+                      aria-label={sessionPanelCollapsed ? 'Expandir sessao' : 'Minimizar sessao'}
+                      title={sessionPanelCollapsed ? 'Expandir sessao' : 'Minimizar sessao'}
+                      onClick={() => setSessionPanelCollapsed((current) => !current)}
+                    >
+                      <span className={`session-panel-toggle-icon ${sessionPanelCollapsed ? 'session-panel-toggle-icon-expand' : 'session-panel-toggle-icon-collapse'}`} aria-hidden="true" />
+                    </Button>
+                  </div>
+
+                  <div className="session-info-body">
+                    <div className="session-info-media">
+                      <img src={sessionCoverImage} alt="" className="session-info-image" />
+                      <div className="session-matrix-code" aria-hidden="true">
+                        {matrixLines.map((line) => (
+                          <span key={line}>{line}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="session-info-copy">
+                      <div className={`session-briefing-header ${briefingCollapsed ? 'session-briefing-header-collapsed' : 'session-briefing-header-expanded'}`}>
+                        <p className={`cy-subtitle session-briefing-text ${briefingCollapsed ? 'session-briefing-text-collapsed' : ''}`}>
+                          {sessionBriefing}
+                        </p>
+                        {sessionBriefing ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="session-briefing-toggle session-panel-icon-button"
+                            aria-label={briefingCollapsed ? 'Expandir briefing' : 'Minimizar briefing'}
+                            title={briefingCollapsed ? 'Expandir briefing' : 'Minimizar briefing'}
+                            onClick={() => setBriefingCollapsed((current) => !current)}
+                          >
+                            <span className={`session-panel-toggle-icon ${briefingCollapsed ? 'session-panel-toggle-icon-expand' : 'session-panel-toggle-icon-collapse'}`} aria-hidden="true" />
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </Card>
 
-              <Card className="session-transparent-card" style={{ marginTop: 0 }}>
-                <h2 className="cy-title">Rolagens rapidas</h2>
-                <div className="dice-grid">
-                  {quickDice.map((die) => (
-                    <Button
-                      key={die}
-                      type="button"
-                      title={`Rolar d${die}`}
-                      disabled={rollCooldown > 0}
-                      onClick={() => rollQuickDie(die)}
-                    >
-                      d{die}
-                    </Button>
-                  ))}
-                </div>
-                <div className="roll-cooldown" aria-hidden={rollCooldown <= 0}>
-                  {rollCooldown > 0 ? <span /> : null}
-                </div>
-                <div
-                  className={`roll-result roll-result-${getRollTone()} ${quickResult || pendingRoll ? '' : 'roll-result-empty'} ${pendingRoll ? 'roll-result-scrambling' : ''} ${pendingRoll && getRollTone() !== 'neutral' ? 'roll-result-oscillating' : ''}`}
-                >
-                  <span>
-                    {pendingRoll
-                      ? pendingRoll.label ?? `d${pendingRoll.die}`
-                      : quickResult
-                        ? quickResult.label ?? `d${quickResult.die}`
-                        : 'Aguardando rolagem'}
-                  </span>
-                  <strong>{pendingRoll ? scrambleValue : quickResult?.total ?? quickResult?.value ?? '-'}</strong>
-                  {quickResult?.modifier !== undefined && !pendingRoll ? (
-                    <small>d20 {quickResult.value} + {quickResult.modifier}</small>
-                  ) : null}
-                </div>
-              </Card>
+              <div className="session-side-stack">
+                {character ? (
+                  <Card className="session-transparent-card session-critical-panel" style={{ marginTop: 0 }}>
+                    <div className={`session-sheet-panel ${sheetPanelCollapsed ? 'session-sheet-panel-collapsed' : 'session-sheet-panel-expanded'}`}>
+                      <div className="session-sheet-toolbar">
+                        <h2 className="cy-title">Ficha</h2>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="session-panel-toggle session-panel-icon-button"
+                          aria-label={sheetPanelCollapsed ? 'Expandir ficha' : 'Minimizar ficha'}
+                          title={sheetPanelCollapsed ? 'Expandir ficha' : 'Minimizar ficha'}
+                          onClick={() => setSheetPanelCollapsed((current) => !current)}
+                        >
+                          <span className={`session-panel-toggle-icon ${sheetPanelCollapsed ? 'session-panel-toggle-icon-expand' : 'session-panel-toggle-icon-collapse'}`} aria-hidden="true" />
+                        </Button>
+                      </div>
+                      <div className="session-sheet-body">
+                        <div className="session-critical-grid">
+                          {criticalStats.map((stat) => (
+                            <div className="session-critical-stat" key={stat.label}>
+                              <span>{stat.label}</span>
+                              <strong>
+                                {formatCriticalValue(stat.current)}
+                                <small> / {formatCriticalValue(stat.maximum)}</small>
+                              </strong>
+                            </div>
+                          ))}
+                          <div className="session-critical-stat session-critical-stat-wide">
+                            <span>Ferimentos criticos</span>
+                            <strong>{formatCriticalValue(criticalInjuries)}</strong>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </Card>
+                ) : null}
+
+                <Card className="session-transparent-card" style={{ marginTop: 0 }}>
+                  <h2 className="cy-title">Rolagens rapidas</h2>
+                  <div className="dice-grid">
+                    {quickDice.map((die) => (
+                      <Button
+                        key={die}
+                        type="button"
+                        title={`Rolar d${die}`}
+                        disabled={rollCooldown > 0}
+                        onClick={() => rollQuickDie(die)}
+                      >
+                        d{die}
+                      </Button>
+                    ))}
+                  </div>
+                  <div className="roll-cooldown" aria-hidden={rollCooldown <= 0}>
+                    {rollCooldown > 0 ? <span /> : null}
+                  </div>
+                  <div
+                    className={`roll-result roll-result-${getRollTone()} ${quickResult || pendingRoll ? '' : 'roll-result-empty'} ${pendingRoll ? 'roll-result-scrambling' : ''} ${pendingRoll && getRollTone() !== 'neutral' ? 'roll-result-oscillating' : ''}`}
+                  >
+                    <span>
+                      {pendingRoll
+                        ? pendingRoll.label ?? `d${pendingRoll.die}`
+                        : quickResult
+                          ? quickResult.label ?? `d${quickResult.die}`
+                          : 'Aguardando rolagem'}
+                    </span>
+                    <strong>{pendingRoll ? scrambleValue : quickResult?.total ?? quickResult?.value ?? '-'}</strong>
+                    {quickResult?.modifier !== undefined && !pendingRoll ? (
+                      <small>d20 {quickResult.value} + {quickResult.modifier}</small>
+                    ) : null}
+                  </div>
+                </Card>
+              </div>
             </div>
 
             {character ? (
               <div className="session-actions">
-                <Button type="button" onClick={() => setActiveModal('inventory')}>
-                  Inventario
+                <Button type="button" className="session-icon-button" aria-label="Contatos" title="Contatos" onClick={() => setActiveModal('contacts')}>
+                  <span className="session-action-icon session-action-icon-contacts" aria-hidden="true" />
                 </Button>
-                <Button type="button" onClick={() => setActiveModal('attributes')}>
-                  Atributos
+                <Button type="button" className="session-icon-button" aria-label="Inventario" title="Inventario" onClick={() => setActiveModal('inventory')}>
+                  <span className="session-action-icon session-action-icon-inventory" aria-hidden="true" />
                 </Button>
-                <Button type="button" onClick={() => setActiveModal('skills')}>
-                  Pericias
+                <Button type="button" className="session-icon-button" aria-label="Atributos" title="Atributos" onClick={() => setActiveModal('attributes')}>
+                  <span className="session-action-icon session-action-icon-attributes" aria-hidden="true" />
                 </Button>
-                <Button type="button" onClick={() => setActiveModal('basic')}>
-                  Informacoes basicas
+                <Button type="button" className="session-icon-button" aria-label="Pericias" title="Pericias" onClick={() => setActiveModal('skills')}>
+                  <span className="session-action-icon session-action-icon-skills" aria-hidden="true" />
+                </Button>
+                <Button type="button" className="session-icon-button" aria-label="Informacoes basicas" title="Informacoes basicas" onClick={() => setActiveModal('basic')}>
+                  <span className="session-action-icon session-action-icon-info" aria-hidden="true" />
                 </Button>
               </div>
             ) : null}
@@ -421,7 +554,14 @@ export function SessionLobbyPage() {
               >
                 X
               </Button>
-              {activeModal === 'basic' ? <CharacterSummary character={character} /> : null}
+              {activeModal === 'basic' ? (
+                <CharacterSummary
+                  character={character}
+                  allowPortraitUpload
+                  portraitVersion={portraitVersion}
+                  onPortraitUpdated={() => setPortraitVersion(Date.now())}
+                />
+              ) : null}
               {activeModal === 'attributes' ? (
                 <AttributeGrid
                   attributes={currentAttributes}
@@ -444,6 +584,30 @@ export function SessionLobbyPage() {
               ) : null}
               {activeModal === 'inventory' ? (
                 <InventoryGallery assets={inventory} loading={inventoryLoading} onSelect={() => undefined} />
+              ) : null}
+              {activeModal === 'contacts' ? (
+                <div>
+                  <h2 className="cy-title">Contatos</h2>
+                  {contactsLoading ? (
+                    <p className="cy-subtitle">Carregando pessoas da mesa...</p>
+                  ) : (
+                    <div className="session-contacts-grid">
+                      {contacts.map((person) => (
+                        <div className="session-contact-card" key={`${person.idPersonagem}-${person.idUsuario}`}>
+                          <img
+                            src={contactPortraits[getContactKey(person)] ?? defaultPortraitImage}
+                            alt={`Retrato de ${formatCriticalValue(person.nome)}`}
+                          />
+                          <div>
+                            <span>{formatCriticalValue(person.papel)}</span>
+                            <strong>{formatCriticalValue(person.nome)}</strong>
+                            <small>HP {formatCriticalValue(person.hpAtual)} / {formatCriticalValue(person.hpMaximo)}</small>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               ) : null}
             </div>
           </Modal>

@@ -1,19 +1,13 @@
+import { ChangeEvent, useEffect, useState } from 'react';
 import { CharacterDetails } from '../../../integrations/character/character.types';
+import { findCharacterPortraitUrl, defaultPortraitImage } from '../../../integrations/character/portrait';
+import { updateCharacterPortrait } from '../../../integrations/character/character.api';
 import { Card } from '../ui/Card';
 
-const defaultPortraitImage = '/sessionsPublic/default-portrait.png';
+const acceptedPortraitTypes = '.jpg,.jpeg,.png,.webp,.gif';
 
 function valueOrFallback(value: unknown) {
   return value === null || value === undefined || value === '' ? 'Nao informado' : String(value);
-}
-
-function toPortraitSource(character: CharacterDetails) {
-  const imageValue = character.fotoBase64 ?? character.imagemBase64 ?? character.portraitBase64 ?? character.foto ?? character.imagem;
-
-  if (!imageValue) return defaultPortraitImage;
-  if (imageValue.startsWith('data:image')) return imageValue;
-
-  return `data:image/png;base64,${imageValue}`;
 }
 
 const fields: Array<{ label: string; key: keyof CharacterDetails }> = [
@@ -21,21 +15,74 @@ const fields: Array<{ label: string; key: keyof CharacterDetails }> = [
   { label: 'Genero', key: 'genero' },
   { label: 'Origem', key: 'origem' },
   { label: 'Nivel Reputacao', key: 'nivelReputacao' },
-  { label: 'Humanidade Atual', key: 'humanidadeAtual' },
-  { label: 'Humanidade Maxima', key: 'humanidadeMaxima' },
   { label: 'Dinheiro', key: 'dinheiro' },
   { label: 'Data Criacao', key: 'dataCriacao' },
 ];
 
-export function CharacterSummary({ character }: { character: CharacterDetails }) {
+export function CharacterSummary({
+  character,
+  allowPortraitUpload = false,
+  portraitVersion = 0,
+  onPortraitUpdated,
+}: {
+  character: CharacterDetails;
+  allowPortraitUpload?: boolean;
+  portraitVersion?: number;
+  onPortraitUpdated?: () => void;
+}) {
   const background = character.conceito;
-  const portraitSource = toPortraitSource(character);
+  const [portraitSource, setPortraitSource] = useState(defaultPortraitImage);
+  const [portraitError, setPortraitError] = useState('');
+
+  async function changePortrait(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    setPortraitError('');
+
+    try {
+      await updateCharacterPortrait(Number(character.idPersonagem ?? character.id), Number(character.idSessao ?? character.sessionId), file);
+      const nextVersion = Date.now();
+      setPortraitSource(await findCharacterPortraitUrl(character, nextVersion));
+      onPortraitUpdated?.();
+    } catch {
+      setPortraitError('Nao foi possivel atualizar o retrato.');
+    } finally {
+      event.target.value = '';
+    }
+  }
+
+  useEffect(() => {
+    let active = true;
+
+    async function refreshPortrait() {
+      const portraitUrl = await findCharacterPortraitUrl(character, portraitVersion);
+
+      if (active) {
+        setPortraitSource(portraitUrl);
+      }
+    }
+
+    refreshPortrait();
+
+    return () => {
+      active = false;
+    };
+  }, [character, portraitVersion]);
 
   return (
     <Card>
       <div className="character-summary-layout">
         <div className="character-portrait-box">
           <img src={portraitSource} alt={`Retrato de ${valueOrFallback(character.nome)}`} />
+          {allowPortraitUpload ? (
+            <label className="character-portrait-upload">
+              <input type="file" accept={acceptedPortraitTypes} onChange={changePortrait} />
+              <span>Alterar retrato</span>
+            </label>
+          ) : null}
+          {portraitError ? <p className="auth-error-message">{portraitError}</p> : null}
         </div>
 
         <div>

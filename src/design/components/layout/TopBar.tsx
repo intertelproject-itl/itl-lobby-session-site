@@ -40,13 +40,13 @@ export function TopBar() {
               onClick={signOut}
               aria-label="Sair"
               title="Sair"
-              className="logout-image-button"
+              className="logout-icon-button"
               style={{
                 width: 42,
                 height: 42,
               }}
             >
-              <img src="/icons/log-out.png" alt="" aria-hidden="true" />
+              <span className="logout-icon" aria-hidden="true" />
             </button>
           </>
         ) : null}

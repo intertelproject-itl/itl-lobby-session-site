@@ -17,7 +17,7 @@ function toNumber(value: unknown) {
   return Number.isFinite(numberValue) ? numberValue : 0;
 }
 
-function normalizeCharacter(character: Character): Character {
+export function normalizeCharacter(character: Character): Character {
   const id = toNumber(character.idPersonagem);
 
   return {
@@ -26,7 +26,20 @@ function normalizeCharacter(character: Character): Character {
     sessionId: character.idSessao,
     userId: character.idUsuario,
     historia: character.observacoes ?? character.historia,
-    humanidadeMaxima: character.humanidadeMax ?? character.humanidadeMaxima,
+    hpAtual: character.hpAtual ?? character.HpAtual,
+    hpMaximo: character.hpMaximo ?? character.HpMaximo,
+    protecaoArmaduraAtual: character.protecaoArmaduraAtual ?? character.ProtecaoArmaduraAtual,
+    protecaoArmaduraMaximo:
+      character.protecaoArmaduraMaximo ??
+      character.protecaoArmaduraMaxima ??
+      character.ProtecaoArmaduraMaximo ??
+      character.ProtecaoArmaduraMaxima,
+    sorteAtual: character.sorteAtual ?? character.SorteAtual,
+    sorteMaxima: character.sorteMaxima ?? character.SorteMaxima,
+    humanidadeAtual: character.humanidadeAtual ?? character.HumanidadeAtual,
+    humanidadeMaxima: character.humanidadeMax ?? character.humanidadeMaxima ?? character.HumanidadeMax ?? character.HumanidadeMaxima,
+    ferimentosCriticos: character.ferimentosCriticos ?? character.FerimentosCriticos ?? character['FerimentosCríticos'],
+    portraitBase64: character.portraitBase64 ?? character.potraitBase64,
   };
 }
 
@@ -118,7 +131,7 @@ export async function getCharacterSheetBySessionAndUser(sessionId: number, userI
       if (isTimeoutError(error)) throw error;
       return {};
     }),
-    getCharacterSkillsBySessionAndUser(sessionId, userId, character.id).catch((error) => {
+    getCharacterSkillsBySessionAndUser(sessionId, userId).catch((error) => {
       if (isTimeoutError(error)) throw error;
       return {};
     }),
@@ -147,6 +160,14 @@ export async function updateCharacterAttributes(payload: UpdateSheetPayload) {
 
 export async function updateCharacterSkills(payload: UpdateSheetPayload) {
   const { data } = await apiClient.put<void>('/Personagem/pericias', payload);
+  return data;
+}
+
+export async function updateCharacterPortrait(characterId: number, sessionId: number, file: File) {
+  const formData = new FormData();
+  formData.append('portrait', file);
+
+  const { data } = await apiClient.put<void>(`/Personagem/retrato/${characterId}/${sessionId}`, formData);
   return data;
 }
 

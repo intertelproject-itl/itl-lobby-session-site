@@ -45,8 +45,8 @@ export function SkillList({
         <div className={`sheet-row ${editable ? 'sheet-row-editable' : ''} sheet-row-header`} role="row">
           <strong>Pericia</strong>
           <strong>Modificador</strong>
-          {editable ? <strong>Ajustar</strong> : null}
-          <strong>Rolar</strong>
+          {editable ? <strong aria-hidden="true" /> : null}
+          <strong aria-hidden="true" />
         </div>
         {filteredSkills.map(([key, value]) => (
           <div className={`sheet-row ${editable ? 'sheet-row-editable' : ''}`} key={key} role="row">
@@ -62,8 +62,14 @@ export function SkillList({
                 </Button>
               </span>
             ) : null}
-            <Button style={{ width: 'auto', padding: '0.55rem 0.8rem', borderRadius: 10 }} onClick={() => onRoll(key, value)}>
-              Rollar!
+            <Button
+              type="button"
+              className="sheet-roll-button"
+              aria-label={`Rolar ${capitalizeLabel(key)}`}
+              title={`Rolar ${capitalizeLabel(key)}`}
+              onClick={() => onRoll(key, value)}
+            >
+              <span className="sheet-roll-icon" aria-hidden="true" />
             </Button>
           </div>
         ))}
