@@ -7,6 +7,7 @@ import {
   CreateCharacterRequest,
   SheetData,
   SkillPayload,
+  UpdateCharacterBriefingPayload,
   UpdateSheetPayload,
 } from './character.types';
 
@@ -91,31 +92,31 @@ export async function getCharacterBySessionAndUser(sessionId: number, userId: nu
   }
 }
 
-export async function getCharacterAttributesSheetBySessionAndUser(sessionId: number, userId: number, characterId?: number) {
-  const { data } = await apiClient.get<Record<string, unknown>>(`/SessaoJogatina/${sessionId}/atributos/${userId}`, {
-    params: characterId ? { idPersonagem: characterId } : undefined,
+export async function getCharacterAttributesSheetBySessionAndCharacter(sessionId: number, characterId: number) {
+  const { data } = await apiClient.get<Record<string, unknown>>(`/SessaoJogatina/${sessionId}/atributos/${characterId}`, {
+    params: { idPersonagem: characterId },
     suppressNonTimeoutError: true,
   });
 
   return toSheetData(data);
 }
 
-export async function getCharacterAttributesBySessionAndUser(sessionId: number, userId: number, characterId?: number) {
-  const data = await getCharacterAttributesSheetBySessionAndUser(sessionId, userId, characterId);
+export async function getCharacterAttributesBySessionAndCharacter(sessionId: number, characterId: number) {
+  const data = await getCharacterAttributesSheetBySessionAndCharacter(sessionId, characterId);
   return data.values;
 }
 
-export async function getCharacterSkillsSheetBySessionAndUser(sessionId: number, userId: number, characterId?: number) {
-  const { data } = await apiClient.get<Record<string, unknown>>(`/SessaoJogatina/${sessionId}/pericias/${userId}`, {
-    params: characterId ? { idPersonagem: characterId } : undefined,
+export async function getCharacterSkillsSheetBySessionAndCharacter(sessionId: number, characterId: number) {
+  const { data } = await apiClient.get<Record<string, unknown>>(`/SessaoJogatina/${sessionId}/pericias/${characterId}`, {
+    params: { idPersonagem: characterId },
     suppressNonTimeoutError: true,
   });
 
   return toSheetData(data);
 }
 
-export async function getCharacterSkillsBySessionAndUser(sessionId: number, userId: number, characterId?: number) {
-  const data = await getCharacterSkillsSheetBySessionAndUser(sessionId, userId, characterId);
+export async function getCharacterSkillsBySessionAndCharacter(sessionId: number, characterId: number) {
+  const data = await getCharacterSkillsSheetBySessionAndCharacter(sessionId, characterId);
   return data.values;
 }
 
@@ -127,11 +128,11 @@ export async function getCharacterSheetBySessionAndUser(sessionId: number, userI
   }
 
   const [atributos, pericias] = await Promise.all([
-    getCharacterAttributesBySessionAndUser(sessionId, userId, character.id).catch((error) => {
+    getCharacterAttributesBySessionAndCharacter(sessionId, character.id).catch((error) => {
       if (isTimeoutError(error)) throw error;
       return {};
     }),
-    getCharacterSkillsBySessionAndUser(sessionId, userId).catch((error) => {
+    getCharacterSkillsBySessionAndCharacter(sessionId, character.id).catch((error) => {
       if (isTimeoutError(error)) throw error;
       return {};
     }),
@@ -168,6 +169,13 @@ export async function updateCharacterPortrait(characterId: number, sessionId: nu
   formData.append('portrait', file);
 
   const { data } = await apiClient.put<void>(`/Personagem/retrato/${characterId}/${sessionId}`, formData);
+  return data;
+}
+
+export async function updateCharacterBriefing(characterId: number, briefing: string) {
+  const payload: UpdateCharacterBriefingPayload = { briefing };
+  const { data } = await apiClient.put<void>(`/Personagem/briefing/${characterId}`, payload);
+
   return data;
 }
 

@@ -1,8 +1,9 @@
 import { ChangeEvent, useEffect, useState } from 'react';
 import { CharacterDetails } from '../../../integrations/character/character.types';
 import { findCharacterPortraitUrl, defaultPortraitImage } from '../../../integrations/character/portrait';
-import { updateCharacterPortrait } from '../../../integrations/character/character.api';
+import { updateCharacterBriefing, updateCharacterPortrait } from '../../../integrations/character/character.api';
 import { Card } from '../ui/Card';
+import { Button } from '../ui/Button';
 
 const acceptedPortraitTypes = '.jpg,.jpeg,.png,.webp,.gif';
 const maxPortraitSizeBytes = 500 * 1024;
@@ -44,17 +45,23 @@ const fields: Array<{ label: string; key: keyof CharacterDetails }> = [
 export function CharacterSummary({
   character,
   allowPortraitUpload = false,
+  allowBriefingUpdate = false,
   portraitVersion = 0,
   onPortraitUpdated,
 }: {
   character: CharacterDetails;
   allowPortraitUpload?: boolean;
+  allowBriefingUpdate?: boolean;
   portraitVersion?: number;
   onPortraitUpdated?: () => void;
 }) {
   const background = character.conceito;
   const [portraitSource, setPortraitSource] = useState(defaultPortraitImage);
   const [portraitError, setPortraitError] = useState('');
+  const [briefingText, setBriefingText] = useState(background ?? '');
+  const [briefingUpdating, setBriefingUpdating] = useState(false);
+  const [briefingMessage, setBriefingMessage] = useState('');
+  const [briefingError, setBriefingError] = useState('');
 
   async function changePortrait(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -87,6 +94,23 @@ export function CharacterSummary({
     }
   }
 
+  async function updateBriefing() {
+    if (briefingUpdating) return;
+
+    setBriefingUpdating(true);
+    setBriefingMessage('');
+    setBriefingError('');
+
+    try {
+      await updateCharacterBriefing(Number(character.idPersonagem ?? character.id), briefingText);
+      setBriefingMessage('Briefing atualizado.');
+    } catch {
+      setBriefingError('Nao foi possivel atualizar o briefing.');
+    } finally {
+      setBriefingUpdating(false);
+    }
+  }
+
   useEffect(() => {
     let active = true;
 
@@ -104,6 +128,12 @@ export function CharacterSummary({
       active = false;
     };
   }, [character, portraitVersion]);
+
+  useEffect(() => {
+    setBriefingText(background ?? '');
+    setBriefingMessage('');
+    setBriefingError('');
+  }, [background, character.id, character.idPersonagem]);
 
   return (
     <Card>
@@ -143,7 +173,23 @@ export function CharacterSummary({
 
           <div className="background-box">
             <span>Background</span>
-            <p>{valueOrFallback(background)}</p>
+            {allowBriefingUpdate ? (
+              <div className="character-briefing-editor">
+                <textarea
+                  className="cyber-textarea character-briefing-textarea"
+                  placeholder="Briefing do personagem"
+                  value={briefingText}
+                  onChange={(event) => setBriefingText(event.target.value)}
+                />
+                <Button type="button" onClick={updateBriefing} disabled={briefingUpdating}>
+                  {briefingUpdating ? 'Atualizando...' : 'Atualizar briefing'}
+                </Button>
+                {briefingMessage ? <p className="character-briefing-message">{briefingMessage}</p> : null}
+                {briefingError ? <p className="auth-error-message">{briefingError}</p> : null}
+              </div>
+            ) : (
+              <p>{valueOrFallback(background)}</p>
+            )}
           </div>
         </div>
       </div>

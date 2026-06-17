@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { AppShell } from '../../design/components/layout/AppShell';
@@ -11,6 +11,7 @@ import { useAuth } from '../../scripts/hooks/useAuth';
 type FormValues = { email: string; password: string };
 
 export function LoginPage() {
+  const navigate = useNavigate();
   const { register, handleSubmit } = useForm<FormValues>();
   const { signIn } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -21,6 +22,18 @@ export function LoginPage() {
     setError('');
 
     try {
+      if (values.email.trim().toLowerCase() === 'mestre@mestre') {
+        const sessionId = Number(values.password);
+
+        if (!Number.isFinite(sessionId) || sessionId <= 0) {
+          setError('Informe o idSessao como senha do mestre.');
+          return;
+        }
+
+        navigate(`/mestre/${sessionId}`);
+        return;
+      }
+
       await signIn(values.email, values.password);
     } catch {
       setError('Usario ou Senha inválidos');

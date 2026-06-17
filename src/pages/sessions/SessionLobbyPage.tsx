@@ -12,20 +12,22 @@ import { LoadingScreen } from '../../design/components/ui/LoadingScreen';
 import { Modal } from '../../design/components/ui/Modal';
 import { sendDiscordRoll } from '../../integrations/discord/discord.api';
 import {
-  getCharacterAttributesSheetBySessionAndUser,
-  getCharacterSkillsSheetBySessionAndUser,
+  getCharacterAttributesSheetBySessionAndCharacter,
+  getCharacterSkillsSheetBySessionAndCharacter,
   updateCharacterAttributes,
   updateCharacterSkills,
 } from '../../integrations/character/character.api';
 import { getInventoryAssets } from '../../integrations/inventory/inventory.api';
 import { InventoryAsset } from '../../integrations/inventory/inventory.types';
+import { getNightMarket } from '../../integrations/night-market/night-market.api';
+import { NightMarketDisplayItem } from '../../integrations/night-market/night-market.types';
 import { getSessionPeople } from '../../integrations/sessions/sessions.api';
 import { Character } from '../../integrations/character/character.types';
 import { findCharacterPortraitUrl, defaultPortraitImage } from '../../integrations/character/portrait';
 import { useSessionDashboard } from '../../scripts/hooks/useSessionDashboard';
 import { useAuthStore } from '../../scripts/store/auth.store';
 
-type SheetModal = 'basic' | 'attributes' | 'skills' | 'inventory' | 'contacts' | null;
+type SheetModal = 'basic' | 'attributes' | 'skills' | 'inventory' | 'contacts' | 'nightMarket' | null;
 type QuickDie = 4 | 6 | 8 | 10 | 12 | 20 | 100;
 type RollTone = 'critical' | 'failure' | 'neutral';
 type DisplayRoll = {
@@ -63,7 +65,9 @@ export function SessionLobbyPage() {
   const [activeModal, setActiveModal] = useState<SheetModal>(null);
   const [sessionPanelCollapsed, setSessionPanelCollapsed] = useState(true);
   const [sheetPanelCollapsed, setSheetPanelCollapsed] = useState(false);
-  const [briefingCollapsed, setBriefingCollapsed] = useState(true);
+  const briefingCollapsed = sessionPanelCollapsed;
+  const [chatLogPanelCollapsed, setChatLogPanelCollapsed] = useState(false);
+  const [quickRollPanelCollapsed, setQuickRollPanelCollapsed] = useState(false);
   const [quickResult, setQuickResult] = useState<DisplayRoll | null>(null);
   const [pendingRoll, setPendingRoll] = useState<DisplayRoll | null>(null);
   const [scrambleValue, setScrambleValue] = useState('--');
@@ -80,6 +84,7 @@ export function SessionLobbyPage() {
   const [contacts, setContacts] = useState<Character[]>([]);
   const [contactPortraits, setContactPortraits] = useState<Record<string, string>>({});
   const [contactsLoading, setContactsLoading] = useState(false);
+  const [nightMarket, setNightMarket] = useState<NightMarketDisplayItem[]>([]);
   const [portraitVersion, setPortraitVersion] = useState(0);
   const diceRollAudioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -94,6 +99,21 @@ export function SessionLobbyPage() {
 
   function formatCriticalValue(value: unknown) {
     return value === null || value === undefined || value === '' ? '-' : String(value);
+  }
+
+  function formatNightMarketPrice(value: unknown) {
+    return typeof value === 'number' && Number.isFinite(value) ? `${value.toLocaleString('pt-BR')} eb` : '-';
+  }
+
+  function getNightMarketRarityClass(rarity?: string | null) {
+    const normalized = (rarity ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+    if (normalized === 'comum') return 'night-market-item-common';
+    if (normalized === 'incomum') return 'night-market-item-uncommon';
+    if (normalized === 'raro') return 'night-market-item-rare';
+    if (normalized === 'epico') return 'night-market-item-epic';
+    if (normalized === 'lendario') return 'night-market-item-legendary';
+    return 'night-market-item-common';
   }
 
   function getContactKey(person: Character) {
@@ -217,14 +237,14 @@ export function SessionLobbyPage() {
   }, [character]);
 
   useEffect(() => {
-    if (!character || !userId || activeModal !== 'attributes') return;
+    if (!character || activeModal !== 'attributes') return;
 
     let active = true;
     const currentCharacter = character;
 
     async function refreshAttributes() {
       try {
-        const data = await getCharacterAttributesSheetBySessionAndUser(numericSessionId, userId, currentCharacter.id);
+        const data = await getCharacterAttributesSheetBySessionAndCharacter(numericSessionId, currentCharacter.id);
 
         if (!active) return;
         setCurrentAttributes(data.values);
@@ -242,17 +262,17 @@ export function SessionLobbyPage() {
     return () => {
       active = false;
     };
-  }, [activeModal, character, numericSessionId, userId]);
+  }, [activeModal, character, numericSessionId]);
 
   useEffect(() => {
-    if (!character || !userId || activeModal !== 'skills') return;
+    if (!character || activeModal !== 'skills') return;
 
     let active = true;
     const currentCharacter = character;
 
     async function refreshSkills() {
       try {
-        const data = await getCharacterSkillsSheetBySessionAndUser(numericSessionId, userId, currentCharacter.id);
+        const data = await getCharacterSkillsSheetBySessionAndCharacter(numericSessionId, currentCharacter.id);
 
         if (!active) return;
         setCurrentSkills(data.values);
@@ -270,7 +290,7 @@ export function SessionLobbyPage() {
     return () => {
       active = false;
     };
-  }, [activeModal, character, numericSessionId, userId]);
+  }, [activeModal, character, numericSessionId]);
 
   useEffect(() => {
     if (!character || activeModal !== 'inventory') return;
@@ -337,6 +357,35 @@ export function SessionLobbyPage() {
   }, [activeModal, numericSessionId, portraitVersion, userId]);
 
   useEffect(() => {
+    if (!character) {
+      setNightMarket([]);
+      return;
+    }
+
+    let active = true;
+
+    async function refreshNightMarket() {
+      try {
+        const items = await getNightMarket();
+
+        if (active) {
+          setNightMarket(items);
+        }
+      } catch {
+        if (active) {
+          setNightMarket([]);
+        }
+      }
+    }
+
+    refreshNightMarket();
+
+    return () => {
+      active = false;
+    };
+  }, [character]);
+
+  useEffect(() => {
     if (rollCooldown <= 0) return;
 
     const timeoutId = window.setTimeout(() => {
@@ -377,57 +426,89 @@ export function SessionLobbyPage() {
       <PageContainer>
         <div className="session-page-layout">
           <div className="session-main-stack">
-            <div className="session-dashboard-grid">
-              <Card className="session-transparent-card" style={{ marginTop: 0 }}>
-                <div className={`session-info-panel ${sessionPanelCollapsed ? 'session-info-panel-collapsed' : 'session-info-panel-expanded'}`}>
-                  <div className="session-info-toolbar">
-                    <div>
-                      <h1 className="cy-title">{session.titulo}</h1>
-                      <p style={{ margin: 0, color: 'var(--text-muted)' }}>Mestre: {session.mestre}</p>
+            <div className={`session-dashboard-grid ${briefingCollapsed ? 'session-dashboard-grid-briefing-collapsed' : 'session-dashboard-grid-briefing-expanded'}`}>
+              <div className="session-content-stack">
+                <Card className="session-transparent-card session-info-card" style={{ marginTop: 0 }}>
+                  <div className={`session-info-panel ${sessionPanelCollapsed ? 'session-info-panel-collapsed' : 'session-info-panel-expanded'}`}>
+                    <div className="session-info-toolbar">
+                      <div>
+                        <h1 className="cy-title">{session.titulo}</h1>
+                        <p style={{ margin: 0, color: 'var(--text-muted)' }}>Mestre: {session.mestre}</p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="session-panel-toggle session-panel-icon-button"
+                        aria-label={sessionPanelCollapsed ? 'Expandir sessao' : 'Minimizar sessao'}
+                        title={sessionPanelCollapsed ? 'Expandir sessao' : 'Minimizar sessao'}
+                        onClick={() => setSessionPanelCollapsed((current) => !current)}
+                      >
+                        <span className={`session-panel-toggle-icon ${sessionPanelCollapsed ? 'session-panel-toggle-icon-expand' : 'session-panel-toggle-icon-collapse'}`} aria-hidden="true" />
+                      </Button>
                     </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="session-panel-toggle session-panel-icon-button"
-                      aria-label={sessionPanelCollapsed ? 'Expandir sessao' : 'Minimizar sessao'}
-                      title={sessionPanelCollapsed ? 'Expandir sessao' : 'Minimizar sessao'}
-                      onClick={() => setSessionPanelCollapsed((current) => !current)}
-                    >
-                      <span className={`session-panel-toggle-icon ${sessionPanelCollapsed ? 'session-panel-toggle-icon-expand' : 'session-panel-toggle-icon-collapse'}`} aria-hidden="true" />
-                    </Button>
-                  </div>
 
-                  <div className="session-info-body">
-                    <div className="session-info-media">
-                      <img src={sessionCoverImage} alt="" className="session-info-image" />
-                      <div className="session-matrix-code" aria-hidden="true">
-                        {matrixLines.map((line) => (
-                          <span key={line}>{line}</span>
-                        ))}
+                    <div className={`session-info-body ${briefingCollapsed ? 'session-info-body-briefing-collapsed' : 'session-info-body-briefing-expanded'}`}>
+                      <div className="session-info-media">
+                        <img src={sessionCoverImage} alt="" className="session-info-image" />
+                        <div className="session-matrix-code" aria-hidden="true">
+                          {matrixLines.map((line) => (
+                            <span key={line}>{line}</span>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                    <div className="session-info-copy">
-                      <div className={`session-briefing-header ${briefingCollapsed ? 'session-briefing-header-collapsed' : 'session-briefing-header-expanded'}`}>
-                        <p className={`cy-subtitle session-briefing-text ${briefingCollapsed ? 'session-briefing-text-collapsed' : ''}`}>
-                          {sessionBriefing}
-                        </p>
-                        {sessionBriefing ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className="session-briefing-toggle session-panel-icon-button"
-                            aria-label={briefingCollapsed ? 'Expandir briefing' : 'Minimizar briefing'}
-                            title={briefingCollapsed ? 'Expandir briefing' : 'Minimizar briefing'}
-                            onClick={() => setBriefingCollapsed((current) => !current)}
-                          >
-                            <span className={`session-panel-toggle-icon ${briefingCollapsed ? 'session-panel-toggle-icon-expand' : 'session-panel-toggle-icon-collapse'}`} aria-hidden="true" />
-                          </Button>
-                        ) : null}
+                      <div className="session-info-copy">
+                        <div className={`session-briefing-header ${briefingCollapsed ? 'session-briefing-header-collapsed' : 'session-briefing-header-expanded'}`}>
+                          <p className={`cy-subtitle session-briefing-text ${briefingCollapsed ? 'session-briefing-text-collapsed' : ''}`}>
+                            {sessionBriefing}
+                          </p>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              </Card>
+                </Card>
+
+                <Card className={`session-transparent-card session-chat-log-panel ${chatLogPanelCollapsed ? 'session-chat-log-panel-collapsed' : 'session-chat-log-panel-expanded'}`} style={{ marginTop: 0 }}>
+                  <div className="session-chat-log-header">
+                    <h2 className="cy-title">Chat-log</h2>
+                    <div className="session-chat-log-actions">
+                      <span className="session-chat-live-status">
+                        <i aria-hidden="true" />
+                        NO AR
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="session-panel-toggle session-panel-icon-button"
+                        aria-label={chatLogPanelCollapsed ? 'Expandir chat-log' : 'Minimizar chat-log'}
+                        title={chatLogPanelCollapsed ? 'Expandir chat-log' : 'Minimizar chat-log'}
+                        onClick={() => setChatLogPanelCollapsed((current) => !current)}
+                      >
+                        <span className={`session-panel-toggle-icon ${chatLogPanelCollapsed ? 'session-panel-toggle-icon-expand' : 'session-panel-toggle-icon-collapse'}`} aria-hidden="true" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="session-chat-log-body">
+                  <div className="session-chat-log-stream" aria-live="polite">
+                    <p>Nenhuma transmissao registrada.</p>
+                  </div>
+                  <form className="session-chat-composer">
+                    <label htmlFor="session-chat-message">Mensagem</label>
+                    <div className="session-chat-input-row">
+                      <textarea id="session-chat-message" placeholder="O que você está sentindo tchum?" rows={2} />
+                      <div className="session-chat-tools" aria-label="Anexos e midia">
+                        <label className="session-chat-tool-button session-chat-file-button" aria-label="Adicionar imagem ou GIF" title="Imagem ou GIF">
+                          <input type="file" accept="image/*,.gif" />
+                          <span>Anexar midia</span>
+                        </label>
+                        <Button type="button" className="session-chat-send-button" aria-label="Enviar mensagem" title="Enviar">
+                          Enviar
+                        </Button>
+                      </div>
+                    </div>
+                  </form>
+                  </div>
+                </Card>
+              </div>
 
               <div className="session-side-stack">
                 {character ? (
@@ -467,8 +548,21 @@ export function SessionLobbyPage() {
                   </Card>
                 ) : null}
 
-                <Card className="session-transparent-card" style={{ marginTop: 0 }}>
-                  <h2 className="cy-title">Rolagens rapidas</h2>
+                <Card className={`session-transparent-card session-quick-roll-panel ${quickRollPanelCollapsed ? 'session-quick-roll-panel-collapsed' : 'session-quick-roll-panel-expanded'}`} style={{ marginTop: 0 }}>
+                  <div className="session-panel-card-toolbar">
+                    <h2 className="cy-title">Rolagens rapidas</h2>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="session-panel-toggle session-panel-icon-button"
+                      aria-label={quickRollPanelCollapsed ? 'Expandir rolagens rapidas' : 'Minimizar rolagens rapidas'}
+                      title={quickRollPanelCollapsed ? 'Expandir rolagens rapidas' : 'Minimizar rolagens rapidas'}
+                      onClick={() => setQuickRollPanelCollapsed((current) => !current)}
+                    >
+                      <span className={`session-panel-toggle-icon ${quickRollPanelCollapsed ? 'session-panel-toggle-icon-expand' : 'session-panel-toggle-icon-collapse'}`} aria-hidden="true" />
+                    </Button>
+                  </div>
+                  <div className="session-quick-roll-body">
                   <div className="dice-grid">
                     {quickDice.map((die) => (
                       <Button
@@ -500,12 +594,19 @@ export function SessionLobbyPage() {
                       <small>d20 {quickResult.value} + {quickResult.modifier}</small>
                     ) : null}
                   </div>
+                  </div>
                 </Card>
               </div>
             </div>
 
             {character ? (
               <div className="session-actions">
+                {nightMarket.length > 0 ? (
+                  <Button type="button" className="session-night-market-button" aria-label="Loja Noturna" title="Loja Noturna" onClick={() => setActiveModal('nightMarket')}>
+                    <span className="session-night-market-button-kicker">Sinal clandestino</span>
+                    <strong>Loja Noturna</strong>
+                  </Button>
+                ) : null}
                 <Button type="button" className="session-icon-button" aria-label="Contatos" title="Contatos" onClick={() => setActiveModal('contacts')}>
                   <span className="session-action-icon session-action-icon-contacts" aria-hidden="true" />
                 </Button>
@@ -536,13 +637,13 @@ export function SessionLobbyPage() {
                 padding: '0.85rem 1rem',
               }}
             >
-              Voltar para sessoes
+              Sair da sessão
             </Button>
           </Link>
         </div>
 
         {character && activeModal ? (
-          <Modal maxWidth={activeModal === 'attributes' || activeModal === 'skills' ? 720 : 900}>
+          <Modal maxWidth={activeModal === 'attributes' || activeModal === 'skills' ? 720 : activeModal === 'nightMarket' ? 1080 : 900}>
             <div className="sheet-modal-stack">
               <Button
                 type="button"
@@ -558,6 +659,7 @@ export function SessionLobbyPage() {
                 <CharacterSummary
                   character={character}
                   allowPortraitUpload
+                  allowBriefingUpdate
                   portraitVersion={portraitVersion}
                   onPortraitUpdated={() => setPortraitVersion(Date.now())}
                 />
@@ -607,6 +709,44 @@ export function SessionLobbyPage() {
                       ))}
                     </div>
                   )}
+                </div>
+              ) : null}
+              {activeModal === 'nightMarket' ? (
+                <div className="night-market-modal">
+                  <div className="night-market-header">
+                    <div>
+                      <span>Transmissao ilegal ativa</span>
+                      <h2 className="cy-title">Loja Noturna</h2>
+                    </div>
+                    <strong>{nightMarket.length} itens</strong>
+                  </div>
+                  <div className="night-market-grid">
+                    {nightMarket.map((item) => (
+                      <article className={`night-market-item ${getNightMarketRarityClass(item.raridade)}`} key={item.displayId}>
+                        <div className="night-market-item-header">
+                          <span>{item.category}</span>
+                          <em>{item.raridade ?? 'Comum'}</em>
+                        </div>
+                        <h3>{item.nome}</h3>
+                        <div className="night-market-item-meta">
+                          <strong>{formatNightMarketPrice(item.preco)}</strong>
+                          {item.tipo ? <small>{item.tipo}</small> : null}
+                        </div>
+                        {item.specs.length > 0 ? (
+                          <dl>
+                            {item.specs.map((spec) => (
+                              <div key={`${item.displayId}-${spec.label}`}>
+                                <dt>{spec.label}</dt>
+                                <dd>{spec.value}</dd>
+                              </div>
+                            ))}
+                          </dl>
+                        ) : null}
+                        {item.detalhe ? <p>{item.detalhe}</p> : null}
+                        {item.observacao ? <p>{item.observacao}</p> : null}
+                      </article>
+                    ))}
+                  </div>
                 </div>
               ) : null}
             </div>

@@ -91,3 +91,7 @@ export type SkillPayload = Record<string, number>;
 export type UpdateSheetPayload = Record<string, number> & {
   idPersonagem: number;
 };
+
+export type UpdateCharacterBriefingPayload = {
+  briefing: string | null;
+};
