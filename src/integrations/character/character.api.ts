@@ -6,12 +6,15 @@ import {
   CharacterDetails,
   CreateCharacterRequest,
   SheetData,
+  SkillSheetRow,
+  SkillUpdatePayload,
+  SkillSheetValues,
   SkillPayload,
   UpdateCharacterBriefingPayload,
   UpdateSheetPayload,
 } from './character.types';
 
-const ignoredSheetKeys = new Set(['idAtributo', 'idPericia', 'idPersonagem', 'personagem', 'editavel']);
+const ignoredSheetKeys = new Set(['idAtributo', 'idPericia', 'idSessao', 'idPersonagem', 'personagem', 'editavel', 'dataCriacao', 'dataMudanca']);
 
 function toNumber(value: unknown) {
   const numberValue = Number(value);
@@ -58,6 +61,58 @@ function toSheetData(payload: Record<string, unknown>): SheetData {
   return {
     values,
     editavel: isEditable(payload.editavel),
+  };
+}
+
+function capitalizeLabel(label: string) {
+  const withSpaces = label.replace(/([A-Z])/g, ' $1').trim();
+  return withSpaces ? withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1) : withSpaces;
+}
+
+function formatSkillCategoryLabel(category: string) {
+  return capitalizeLabel(category.replace(/^pericias/i, ''));
+}
+
+function toSkillSheetData(payload: Record<string, unknown>): { values: SkillSheetValues; editavel: boolean } {
+  const categoryEntries = Object.entries(payload).filter(
+    ([, value]) => typeof value === 'object' && value !== null && !Array.isArray(value)
+  );
+
+  if (categoryEntries.length === 0) {
+    return toSheetData(payload);
+  }
+
+  const rows = categoryEntries.flatMap(([categoryKey, categoryValue]) => {
+    const category = categoryValue as Record<string, unknown>;
+    const categoryEditable = isEditable(category.editavel);
+
+    return Object.entries(category)
+      .filter(([key, value]) => key.endsWith('Base') && value !== null && value !== undefined)
+      .map(([baseKey, baseValue]): SkillSheetRow => {
+        const key = baseKey.slice(0, -'Base'.length);
+        const nivelKey = `${key}Nivel`;
+
+        return {
+          id: `${categoryKey}.${key}`,
+          key,
+          baseKey,
+          categoryKey,
+          label: capitalizeLabel(key),
+          category: formatSkillCategoryLabel(categoryKey),
+          base: toNumber(baseValue),
+          nivel: toNumber(category[nivelKey]),
+          editable: categoryEditable,
+          nivelKey,
+          categoryFields: Object.fromEntries(
+            Object.entries(category).filter(([fieldKey]) => ignoredSheetKeys.has(fieldKey))
+          ),
+        };
+      });
+  });
+
+  return {
+    values: rows,
+    editavel: rows.some((row) => row.editable),
   };
 }
 
@@ -112,7 +167,7 @@ export async function getCharacterSkillsSheetBySessionAndCharacter(sessionId: nu
     suppressNonTimeoutError: true,
   });
 
-  return toSheetData(data);
+  return toSkillSheetData(data);
 }
 
 export async function getCharacterSkillsBySessionAndCharacter(sessionId: number, characterId: number) {
@@ -159,7 +214,7 @@ export async function updateCharacterAttributes(payload: UpdateSheetPayload) {
   return data;
 }
 
-export async function updateCharacterSkills(payload: UpdateSheetPayload) {
+export async function updateCharacterSkills(payload: SkillUpdatePayload) {
   const { data } = await apiClient.put<void>('/Personagem/pericias', payload);
   return data;
 }

@@ -22,7 +22,7 @@ import { InventoryAsset } from '../../integrations/inventory/inventory.types';
 import { getNightMarket } from '../../integrations/night-market/night-market.api';
 import { NightMarketDisplayItem } from '../../integrations/night-market/night-market.types';
 import { getSessionPeople } from '../../integrations/sessions/sessions.api';
-import { Character } from '../../integrations/character/character.types';
+import { Character, SkillSheetRow, SkillSheetValues } from '../../integrations/character/character.types';
 import { findCharacterPortraitUrl, defaultPortraitImage } from '../../integrations/character/portrait';
 import { useSessionDashboard } from '../../scripts/hooks/useSessionDashboard';
 import { useAuthStore } from '../../scripts/store/auth.store';
@@ -73,7 +73,7 @@ export function SessionLobbyPage() {
   const [scrambleValue, setScrambleValue] = useState('--');
   const [rollCooldown, setRollCooldown] = useState(0);
   const [currentAttributes, setCurrentAttributes] = useState<Record<string, number>>({});
-  const [currentSkills, setCurrentSkills] = useState<Record<string, number>>({});
+  const [currentSkills, setCurrentSkills] = useState<SkillSheetValues>({});
   const [attributesEditable, setAttributesEditable] = useState(false);
   const [skillsEditable, setSkillsEditable] = useState(false);
   const [updatingAttributes, setUpdatingAttributes] = useState(false);
@@ -176,7 +176,15 @@ export function SessionLobbyPage() {
   }
 
   function adjustSkills(key: string, delta: number) {
-    setCurrentSkills((current) => ({ ...current, [key]: clampSheetValue((current[key] ?? 0) + delta, 0) }));
+    setCurrentSkills((current) => {
+      if (Array.isArray(current)) {
+        return current.map((skill) =>
+          skill.id === key ? { ...skill, nivel: clampSheetValue(skill.nivel + delta, 0) } : skill
+        );
+      }
+
+      return { ...current, [key]: clampSheetValue((current[key] ?? 0) + delta, 0) };
+    });
   }
 
   async function updateAttributes() {
@@ -198,7 +206,19 @@ export function SessionLobbyPage() {
     setUpdatingSkills(true);
 
     try {
-      await updateCharacterSkills({ idPersonagem: character.id, ...currentSkills });
+      const skillPayload = Array.isArray(currentSkills)
+        ? currentSkills.reduce<Record<string, Record<string, unknown>>>((payload, skill: SkillSheetRow) => {
+            payload[skill.categoryKey] = {
+              ...(payload[skill.categoryKey] ?? skill.categoryFields),
+              [skill.baseKey]: skill.base,
+              [skill.nivelKey]: skill.nivel,
+            };
+
+            return payload;
+          }, {})
+        : currentSkills;
+
+      await updateCharacterSkills(Array.isArray(currentSkills) ? skillPayload : { idPersonagem: character.id, ...skillPayload });
       setShowUpdateSuccess(true);
     } finally {
       setUpdatingSkills(false);
@@ -643,7 +663,7 @@ export function SessionLobbyPage() {
         </div>
 
         {character && activeModal ? (
-          <Modal maxWidth={activeModal === 'attributes' || activeModal === 'skills' ? 720 : activeModal === 'nightMarket' ? 1080 : 900}>
+          <Modal maxWidth={activeModal === 'skills' ? 960 : activeModal === 'attributes' ? 720 : activeModal === 'nightMarket' ? 1080 : 900}>
             <div className="sheet-modal-stack">
               <Button
                 type="button"

@@ -1335,6 +1335,10 @@ img { max-width: 100%; display: block; }
   grid-template-columns: minmax(0, 1fr) 72px minmax(86px, auto) 52px;
 }
 
+.sheet-row-skill {
+  grid-template-columns: minmax(150px, 1.4fr) minmax(96px, 0.9fr) 56px 56px 72px minmax(86px, auto) 52px;
+}
+
 .sheet-row:last-child {
   border-bottom: 0;
 }
@@ -1349,6 +1353,12 @@ img { max-width: 100%; display: block; }
 .sheet-row span {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.sheet-filter-hint {
+  margin: 0.65rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.86rem;
 }
 
 .sheet-adjust-controls {
@@ -1774,6 +1784,11 @@ img { max-width: 100%; display: block; }
 
   .sheet-row-editable {
     grid-template-columns: minmax(0, 1fr) 38px 76px 42px;
+  }
+
+  .sheet-row-skill {
+    grid-template-columns: minmax(112px, 1fr) 48px 38px 38px 48px 72px 42px;
+    overflow-x: auto;
   }
 
   .sheet-row-header {
