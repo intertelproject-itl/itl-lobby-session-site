@@ -4,6 +4,7 @@ type NightMarketBaseItem = {
   id?: string | null;
   nome?: string | null;
   tipo?: string | null;
+  grupo?: string | null;
   preco?: number;
   detalhe?: string | null;
   raridade?: NightMarketRarity | null;
@@ -57,4 +58,11 @@ export type NightMarketDisplayItem = NightMarketBaseItem & {
     label: string;
     value: string;
   }>;
+};
+
+export type BuyMarketItemPayload = {
+  idMongo?: string | null;
+  categoria?: string | null;
+  valor?: number;
+  idPersonagem: number;
 };

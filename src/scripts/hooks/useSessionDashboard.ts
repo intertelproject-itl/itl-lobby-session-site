@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { getCharacterSheetBySessionAndUser } from '../../integrations/character/character.api';
 import { CharacterDetails } from '../../integrations/character/character.types';
 import { InventoryAsset } from '../../integrations/inventory/inventory.types';
@@ -22,23 +22,20 @@ export function useSessionDashboard(sessionId: number, userId?: number) {
     session: null,
   });
 
-  useEffect(() => {
-    let active = true;
-
-    async function load() {
+  const refreshDashboard = useCallback(async (options?: { silent?: boolean }) => {
       if (!sessionId || !userId) {
         setState((current) => ({ ...current, loading: false, needsCharacter: true }));
         return;
       }
 
-      setState((current) => ({ ...current, loading: true, needsCharacter: false }));
+      if (!options?.silent) {
+        setState((current) => ({ ...current, loading: true, needsCharacter: false }));
+      }
 
       try {
         await accessPublicSession(sessionId, true);
         const session = await getSessionByIdSilently(sessionId);
         const character = await getCharacterSheetBySessionAndUser(sessionId, userId);
-
-        if (!active) return;
 
         if (!character) {
           setState({
@@ -59,18 +56,34 @@ export function useSessionDashboard(sessionId: number, userId?: number) {
           session,
         });
       } finally {
-        if (active) {
-          setState((current) => ({ ...current, loading: false }));
-        }
+        setState((current) => ({ ...current, loading: false }));
       }
+  }, [sessionId, userId]);
+
+  const refreshSession = useCallback(async () => {
+    if (!sessionId) return;
+
+    const session = await getSessionByIdSilently(sessionId);
+    setState((current) => ({ ...current, session }));
+  }, [sessionId]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function load() {
+      await refreshDashboard();
     }
 
-    load();
+    load().catch(() => {
+      if (active) {
+        setState((current) => ({ ...current, loading: false }));
+      }
+    });
 
     return () => {
       active = false;
     };
-  }, [sessionId, userId]);
+  }, [refreshDashboard]);
 
-  return state;
+  return { ...state, refreshDashboard, refreshSession };
 }

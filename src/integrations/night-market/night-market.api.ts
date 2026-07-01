@@ -8,6 +8,7 @@ import {
   NightMarketDisplayItem,
   NightMarketResponse,
   NightMarketWeapon,
+  BuyMarketItemPayload,
 } from './night-market.types';
 
 function hasValue(value: unknown) {
@@ -90,4 +91,18 @@ export async function getNightMarket(): Promise<NightMarketDisplayItem[]> {
   const { data } = await apiClient.get<NightMarketResponse | null>('/LojaNoturna/obterLojaNoturna');
 
   return flattenNightMarket(data);
+}
+
+export async function getCommonMarket(): Promise<NightMarketDisplayItem[]> {
+  const { data } = await apiClient.get<NightMarketResponse | null>('/LojaNoturna/obterLojaComun');
+
+  return flattenNightMarket(data);
+}
+
+export async function buyNightMarketItem(payload: BuyMarketItemPayload): Promise<void> {
+  await apiClient.post('/LojaNoturna/comprarLojaNoturna', payload);
+}
+
+export async function buyCommonMarketItem(payload: BuyMarketItemPayload): Promise<void> {
+  await apiClient.post('/LojaNoturna/comprarItemComum', payload);
 }
