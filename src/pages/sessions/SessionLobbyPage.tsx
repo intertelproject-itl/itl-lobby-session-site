@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { FormEvent } from 'react';
+import type { HubConnection } from '@microsoft/signalr';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { AppShell } from '../../design/components/layout/AppShell';
 import { PageContainer } from '../../design/components/layout/PageContainer';
@@ -10,24 +12,36 @@ import { Button } from '../../design/components/ui/Button';
 import { Card } from '../../design/components/ui/Card';
 import { LoadingScreen } from '../../design/components/ui/LoadingScreen';
 import { Modal } from '../../design/components/ui/Modal';
+import { Input } from '../../design/components/ui/Input';
 import { sendDiscordRoll } from '../../integrations/discord/discord.api';
 import {
-  getCharacterAttributesSheetBySessionAndUser,
-  getCharacterSkillsSheetBySessionAndUser,
+  getCharacterAttributesSheetBySessionAndCharacter,
+  getCharacterSkillsSheetBySessionAndCharacter,
   updateCharacterAttributes,
   updateCharacterSkills,
 } from '../../integrations/character/character.api';
 import { getInventoryAssets } from '../../integrations/inventory/inventory.api';
 import { InventoryAsset } from '../../integrations/inventory/inventory.types';
-import { getSessionPeople } from '../../integrations/sessions/sessions.api';
-import { Character } from '../../integrations/character/character.types';
+import { buyCommonMarketItem, buyNightMarketItem, getCommonMarket, getNightMarket } from '../../integrations/night-market/night-market.api';
+import { NightMarketCategory, NightMarketDisplayItem } from '../../integrations/night-market/night-market.types';
+import { getSessionChat, getSessionPeople, sendSessionChatMessage } from '../../integrations/sessions/sessions.api';
+import { ensureChatHubConnected, getChatHubConnection } from '../../integrations/signalr/signalr.api';
+import { Character, SkillSheetRow, SkillSheetValues } from '../../integrations/character/character.types';
 import { findCharacterPortraitUrl, defaultPortraitImage } from '../../integrations/character/portrait';
 import { useSessionDashboard } from '../../scripts/hooks/useSessionDashboard';
 import { useAuthStore } from '../../scripts/store/auth.store';
 
-type SheetModal = 'basic' | 'attributes' | 'skills' | 'inventory' | 'contacts' | null;
+type SheetModal = 'basic' | 'attributes' | 'skills' | 'inventory' | 'contacts' | 'nightMarket' | 'commonMarket' | null;
 type QuickDie = 4 | 6 | 8 | 10 | 12 | 20 | 100;
 type RollTone = 'critical' | 'failure' | 'neutral';
+type MarketKind = 'night' | 'common';
+type WeaponGroup = 'Distancia' | 'CorpoACorpo' | 'Outros';
+type ChatMessage = {
+  id: string;
+  timestamp?: string | null;
+  characterName: string;
+  message: string;
+};
 type DisplayRoll = {
   die: number;
   value: number;
@@ -49,9 +63,74 @@ const matrixLines = [
   'ACCESS KEY: 9F-77-A0-13 // SIGNAL LOCKED',
   '01001110 01000101 01010100 01010010 01010101 01001110',
 ];
+const marketCategories: NightMarketCategory[] = ['Armas', 'Armaduras', 'Armas Ciberneticas', 'Ciberneticas'];
+const weaponGroups: WeaponGroup[] = ['Distancia', 'CorpoACorpo', 'Outros'];
+const defaultMarketCollapsedCategories: Record<NightMarketCategory, boolean> = {
+  Armas: true,
+  Armaduras: true,
+  'Armas Ciberneticas': true,
+  Ciberneticas: true,
+};
+const defaultWeaponGroupCollapsed: Record<WeaponGroup, boolean> = {
+  Distancia: false,
+  CorpoACorpo: false,
+  Outros: false,
+};
 
 function formatMultilineText(value?: string | null) {
   return value?.replace(/\\r\\n|\\n|\\r/g, '\n').replace(/\r\n|\r/g, '\n') ?? '';
+}
+
+function normalizeSearchText(value: unknown) {
+  return String(value ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+function itemMatchesMarketSearch(item: NightMarketDisplayItem, search: string) {
+  if (!search) return true;
+
+  return normalizeSearchText([
+    item.nome,
+    item.category,
+    item.tipo,
+    item.preco,
+    item.raridade,
+    item.detalhe,
+    item.observacao,
+    ...item.specs.flatMap((spec) => [spec.label, spec.value]),
+  ].join(' ')).includes(search);
+}
+
+function toChatMessage(raw: { id?: string | null; nomePersonagem?: string | null; mensagem?: string | null; dataCriacao?: string | null }, fallbackIndex = 0): ChatMessage {
+  return {
+    id: raw.id ?? `${raw.dataCriacao ?? Date.now()}-${fallbackIndex}`,
+    timestamp: raw.dataCriacao,
+    characterName: raw.nomePersonagem ?? 'Sistema',
+    message: raw.mensagem ?? '',
+  };
+}
+
+function formatChatTimestamp(value?: string | null) {
+  if (!value) return '';
+
+  const normalized = value.includes('T') ? value : value.replace(' ', 'T');
+  const date = new Date(normalized);
+
+  if (Number.isNaN(date.getTime())) {
+    return value.slice(0, 16);
+  }
+
+  const pad = (part: number) => String(part).padStart(2, '0');
+
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function getSessionEventNumber(value: unknown) {
+  if (typeof value === 'object' && value !== null) {
+    const payload = value as { sessao?: unknown; idSessao?: unknown; sessionId?: unknown };
+    return Number(payload.sessao ?? payload.idSessao ?? payload.sessionId);
+  }
+
+  return Number(value);
 }
 
 export function SessionLobbyPage() {
@@ -59,17 +138,19 @@ export function SessionLobbyPage() {
   const navigate = useNavigate();
   const userId = useAuthStore((state) => Number(state.user?.idUsuario ?? 0));
   const numericSessionId = Number(sessionId);
-  const { loading, session, character, needsCharacter } = useSessionDashboard(numericSessionId, userId);
+  const { loading, session, character, needsCharacter, refreshDashboard, refreshSession } = useSessionDashboard(numericSessionId, userId);
   const [activeModal, setActiveModal] = useState<SheetModal>(null);
   const [sessionPanelCollapsed, setSessionPanelCollapsed] = useState(true);
   const [sheetPanelCollapsed, setSheetPanelCollapsed] = useState(false);
-  const [briefingCollapsed, setBriefingCollapsed] = useState(true);
+  const briefingCollapsed = sessionPanelCollapsed;
+  const [chatLogPanelCollapsed, setChatLogPanelCollapsed] = useState(false);
+  const [quickRollPanelCollapsed, setQuickRollPanelCollapsed] = useState(false);
   const [quickResult, setQuickResult] = useState<DisplayRoll | null>(null);
   const [pendingRoll, setPendingRoll] = useState<DisplayRoll | null>(null);
   const [scrambleValue, setScrambleValue] = useState('--');
   const [rollCooldown, setRollCooldown] = useState(0);
   const [currentAttributes, setCurrentAttributes] = useState<Record<string, number>>({});
-  const [currentSkills, setCurrentSkills] = useState<Record<string, number>>({});
+  const [currentSkills, setCurrentSkills] = useState<SkillSheetValues>({});
   const [attributesEditable, setAttributesEditable] = useState(false);
   const [skillsEditable, setSkillsEditable] = useState(false);
   const [updatingAttributes, setUpdatingAttributes] = useState(false);
@@ -80,9 +161,42 @@ export function SessionLobbyPage() {
   const [contacts, setContacts] = useState<Character[]>([]);
   const [contactPortraits, setContactPortraits] = useState<Record<string, string>>({});
   const [contactsLoading, setContactsLoading] = useState(false);
+  const [nightMarket, setNightMarket] = useState<NightMarketDisplayItem[]>([]);
+  const [nightMarketFilter, setNightMarketFilter] = useState('');
+  const [nightMarketCollapsedCategories, setNightMarketCollapsedCategories] = useState<Record<NightMarketCategory, boolean>>(defaultMarketCollapsedCategories);
+  const [nightMarketCollapsedWeaponGroups, setNightMarketCollapsedWeaponGroups] = useState<Record<WeaponGroup, boolean>>(defaultWeaponGroupCollapsed);
+  const [commonMarket, setCommonMarket] = useState<NightMarketDisplayItem[]>([]);
+  const [commonMarketLoading, setCommonMarketLoading] = useState(false);
+  const [commonMarketError, setCommonMarketError] = useState(false);
+  const [commonMarketFilter, setCommonMarketFilter] = useState('');
+  const [commonMarketCollapsedCategories, setCommonMarketCollapsedCategories] = useState<Record<NightMarketCategory, boolean>>(defaultMarketCollapsedCategories);
+  const [commonMarketCollapsedWeaponGroups, setCommonMarketCollapsedWeaponGroups] = useState<Record<WeaponGroup, boolean>>(defaultWeaponGroupCollapsed);
+  const [buyingMarketItemId, setBuyingMarketItemId] = useState<string | null>(null);
+  const [marketPurchaseMessage, setMarketPurchaseMessage] = useState<string | null>(null);
+  const [marketPurchaseError, setMarketPurchaseError] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatDraft, setChatDraft] = useState('');
   const [portraitVersion, setPortraitVersion] = useState(0);
   const diceRollAudioRef = useRef<HTMLAudioElement | null>(null);
+  const chatStreamRef = useRef<HTMLDivElement | null>(null);
+  const chatHubConnectionRef = useRef<HubConnection | null>(null);
+  const lastChatEventKeyRef = useRef<string | null>(null);
+  const signalRHandlersRef = useRef({
+    characterId: undefined as number | undefined,
+    refreshCommonMarket: async () => undefined as void,
+    refreshCurrentAttributes: async () => undefined as void,
+    refreshCurrentInventory: async () => undefined as void,
+    refreshCurrentSkills: async () => undefined as void,
+    refreshDashboard: async (_options?: { silent?: boolean }) => undefined as void,
+    refreshNightMarket: async () => undefined as void,
+    refreshSession: async () => undefined as void,
+    refreshSessionChat: async () => undefined as void,
+  });
 
+  const nightMarketStatus = session?.loja_noturna ?? session?.lojaNoturna;
+  const commonMarketStatus = session?.loja_comun ?? session?.lojaComun;
+  const isNightMarketEnabled = Number(nightMarketStatus) === 1 || nightMarketStatus === true;
+  const isCommonMarketEnabled = Number(commonMarketStatus) === 1 || commonMarketStatus === true;
   const sessionBriefing = formatMultilineText(session?.Briefing ?? session?.briefing ?? session?.resumo);
   const criticalStats = character ? [
     { label: 'HP', current: character.hpAtual, maximum: character.hpMaximo },
@@ -91,13 +205,169 @@ export function SessionLobbyPage() {
     { label: 'Humanidade', current: character.humanidadeAtual, maximum: character.humanidadeMaxima },
   ] : [];
   const criticalInjuries = character?.ferimentosCriticos ?? '...';
+  const filteredNightMarket = useMemo(() => {
+    const search = normalizeSearchText(nightMarketFilter.trim());
+
+    return nightMarket.filter((item) => itemMatchesMarketSearch(item, search));
+  }, [nightMarket, nightMarketFilter]);
+  const filteredCommonMarket = useMemo(() => {
+    const search = normalizeSearchText(commonMarketFilter.trim());
+
+    return commonMarket.filter((item) => itemMatchesMarketSearch(item, search));
+  }, [commonMarket, commonMarketFilter]);
 
   function formatCriticalValue(value: unknown) {
     return value === null || value === undefined || value === '' ? '-' : String(value);
   }
 
+  function formatNightMarketPrice(value: unknown) {
+    return typeof value === 'number' && Number.isFinite(value) ? `${value.toLocaleString('pt-BR')} eb` : '-';
+  }
+
+  function getNightMarketRarityClass(rarity?: string | null) {
+    const normalized = (rarity ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+    if (normalized === 'comum') return 'night-market-item-common';
+    if (normalized === 'incomum') return 'night-market-item-uncommon';
+    if (normalized === 'raro') return 'night-market-item-rare';
+    if (normalized === 'epico') return 'night-market-item-epic';
+    if (normalized === 'lendario') return 'night-market-item-legendary';
+    return 'night-market-item-common';
+  }
+
   function getContactKey(person: Character) {
     return `${person.idPersonagem}-${person.idUsuario}`;
+  }
+
+  function getItemsByCategory(items: NightMarketDisplayItem[], category: NightMarketCategory) {
+    return items.filter((item) => item.category === category);
+  }
+
+  function toggleCommonMarketCategory(category: NightMarketCategory) {
+    setCommonMarketCollapsedCategories((current) => ({ ...current, [category]: !current[category] }));
+  }
+
+  function toggleNightMarketCategory(category: NightMarketCategory) {
+    setNightMarketCollapsedCategories((current) => ({ ...current, [category]: !current[category] }));
+  }
+
+  function toggleMarketWeaponGroup(group: WeaponGroup, market: MarketKind) {
+    if (market === 'night') {
+      setNightMarketCollapsedWeaponGroups((current) => ({ ...current, [group]: !current[group] }));
+      return;
+    }
+
+    setCommonMarketCollapsedWeaponGroups((current) => ({ ...current, [group]: !current[group] }));
+  }
+
+  async function buyMarketItem(item: NightMarketDisplayItem, market: MarketKind) {
+    if (!character || buyingMarketItemId) return;
+
+    const purchaseId = `${market}-${item.displayId}`;
+    setBuyingMarketItemId(purchaseId);
+    setMarketPurchaseMessage(null);
+    setMarketPurchaseError(false);
+
+    try {
+      const payload = {
+        idMongo: item.id,
+        categoria: item.category,
+        valor: typeof item.preco === 'number' ? item.preco : 0,
+        idPersonagem: character.id,
+      };
+
+      if (market === 'night') {
+        await buyNightMarketItem(payload);
+      } else {
+        await buyCommonMarketItem(payload);
+      }
+
+      setMarketPurchaseMessage(`${item.nome} comprado com sucesso.`);
+    } catch {
+      setMarketPurchaseMessage(`Nao foi possivel comprar ${item.nome}.`);
+      setMarketPurchaseError(true);
+    } finally {
+      setBuyingMarketItemId(null);
+    }
+  }
+
+  function getWeaponGroup(item: NightMarketDisplayItem): WeaponGroup {
+    const normalized = normalizeSearchText(item.grupo).replace(/\s/g, '');
+
+    if (normalized === 'distancia') return 'Distancia';
+    if (normalized === 'corpoacorpo') return 'CorpoACorpo';
+    return 'Outros';
+  }
+
+  function renderMarketItem(item: NightMarketDisplayItem, market: MarketKind) {
+    return (
+      <article className={`night-market-item ${getNightMarketRarityClass(item.raridade)}`} key={item.displayId}>
+        <div className="night-market-item-header">
+          <span>{item.category}</span>
+          <em>{item.raridade ?? 'Comum'}</em>
+        </div>
+        <h3>{item.nome}</h3>
+        <div className="night-market-item-meta">
+          <strong>{formatNightMarketPrice(item.preco)}</strong>
+          {item.tipo ? <small>{item.tipo}</small> : null}
+        </div>
+        {item.specs.length > 0 ? (
+          <dl>
+            {item.specs.map((spec) => (
+              <div key={`${item.displayId}-${spec.label}`}>
+                <dt>{spec.label}</dt>
+                <dd>{spec.value}</dd>
+              </div>
+            ))}
+          </dl>
+        ) : null}
+        {item.detalhe ? <p>{item.detalhe}</p> : null}
+        {item.observacao ? <p>{item.observacao}</p> : null}
+        <Button
+          type="button"
+          className="market-buy-button"
+          disabled={buyingMarketItemId !== null}
+          onClick={() => buyMarketItem(item, market)}
+        >
+          {buyingMarketItemId === `${market}-${item.displayId}` ? 'Comprando...' : 'Comprar'}
+        </Button>
+      </article>
+    );
+  }
+
+  function renderMarketCategoryItems(items: NightMarketDisplayItem[], category: NightMarketCategory, market: MarketKind) {
+    if (category !== 'Armas') {
+      return <div className="night-market-grid">{items.map((item) => renderMarketItem(item, market))}</div>;
+    }
+
+    const collapsedWeaponGroups = market === 'night' ? nightMarketCollapsedWeaponGroups : commonMarketCollapsedWeaponGroups;
+
+    return (
+      <div className="market-weapon-group-stack">
+        {weaponGroups.map((group) => {
+          const groupItems = items.filter((item) => getWeaponGroup(item) === group);
+          const collapsed = collapsedWeaponGroups[group];
+
+          if (groupItems.length === 0) return null;
+
+          return (
+            <section className="market-weapon-group" key={group}>
+              <button
+                type="button"
+                className="market-weapon-group-header"
+                aria-expanded={!collapsed}
+                onClick={() => toggleMarketWeaponGroup(group, market)}
+              >
+                <span className={`common-market-category-chevron ${collapsed ? '' : 'common-market-category-chevron-open'}`} aria-hidden="true" />
+                <h4>{group}</h4>
+                <span>{groupItems.length} itens</span>
+              </button>
+              {!collapsed ? <div className="night-market-grid">{groupItems.map((item) => renderMarketItem(item, market))}</div> : null}
+            </section>
+          );
+        })}
+      </div>
+    );
   }
 
   function dispatchDiscordRoll(roll: DisplayRoll) {
@@ -156,7 +426,15 @@ export function SessionLobbyPage() {
   }
 
   function adjustSkills(key: string, delta: number) {
-    setCurrentSkills((current) => ({ ...current, [key]: clampSheetValue((current[key] ?? 0) + delta, 0) }));
+    setCurrentSkills((current) => {
+      if (Array.isArray(current)) {
+        return current.map((skill) =>
+          skill.id === key ? { ...skill, nivel: clampSheetValue(skill.nivel + delta, 0) } : skill
+        );
+      }
+
+      return { ...current, [key]: clampSheetValue((current[key] ?? 0) + delta, 0) };
+    });
   }
 
   async function updateAttributes() {
@@ -178,7 +456,19 @@ export function SessionLobbyPage() {
     setUpdatingSkills(true);
 
     try {
-      await updateCharacterSkills({ idPersonagem: character.id, ...currentSkills });
+      const skillPayload = Array.isArray(currentSkills)
+        ? currentSkills.reduce<Record<string, Record<string, unknown>>>((payload, skill: SkillSheetRow) => {
+            payload[skill.categoryKey] = {
+              ...(payload[skill.categoryKey] ?? skill.categoryFields),
+              [skill.baseKey]: skill.base,
+              [skill.nivelKey]: skill.nivel,
+            };
+
+            return payload;
+          }, {})
+        : currentSkills;
+
+      await updateCharacterSkills(Array.isArray(currentSkills) ? skillPayload : { idPersonagem: character.id, ...skillPayload });
       setShowUpdateSuccess(true);
     } finally {
       setUpdatingSkills(false);
@@ -203,6 +493,30 @@ export function SessionLobbyPage() {
     navigate(`/sessoes/${numericSessionId}/personagem/criar`, { replace: true });
   }
 
+  async function sendChatMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const message = chatDraft.trim();
+
+    if (!message || !character) return;
+
+    setChatDraft('');
+
+    try {
+      await sendSessionChatMessage(numericSessionId, character.nome ?? 'Personagem', message);
+    } catch {
+      setChatMessages((current) => [
+        ...current,
+        {
+          id: `${Date.now()}-erro`,
+          timestamp: new Date().toISOString(),
+          characterName: 'Sistema',
+          message: 'Nao foi possivel enviar a mensagem.',
+        },
+      ]);
+    }
+  }
+
   useEffect(() => {
     if (!loading && needsCharacter) {
       goToCharacterCreation();
@@ -216,90 +530,129 @@ export function SessionLobbyPage() {
     setSkillsEditable(false);
   }, [character]);
 
-  useEffect(() => {
-    if (!character || !userId || activeModal !== 'attributes') return;
+  const refreshCurrentAttributes = useCallback(async () => {
+    if (!character) return;
 
-    let active = true;
-    const currentCharacter = character;
+    try {
+      const data = await getCharacterAttributesSheetBySessionAndCharacter(numericSessionId, character.id);
 
-    async function refreshAttributes() {
-      try {
-        const data = await getCharacterAttributesSheetBySessionAndUser(numericSessionId, userId, currentCharacter.id);
+      setCurrentAttributes(data.values);
+      setAttributesEditable(data.editavel);
+    } catch {
+      setCurrentAttributes(character.atributos ?? {});
+      setAttributesEditable(false);
+    }
+  }, [character, numericSessionId]);
 
-        if (!active) return;
-        setCurrentAttributes(data.values);
-        setAttributesEditable(data.editavel);
-      } catch {
-        if (active) {
-          setCurrentAttributes(currentCharacter.atributos ?? {});
-          setAttributesEditable(false);
-        }
-      }
+  const refreshCurrentSkills = useCallback(async () => {
+    if (!character) return;
+
+    try {
+      const data = await getCharacterSkillsSheetBySessionAndCharacter(numericSessionId, character.id);
+
+      setCurrentSkills(data.values);
+      setSkillsEditable(data.editavel);
+    } catch {
+      setCurrentSkills(character.pericias ?? {});
+      setSkillsEditable(false);
+    }
+  }, [character, numericSessionId]);
+
+  const refreshCurrentInventory = useCallback(async () => {
+    if (!character) return;
+
+    setInventoryLoading(true);
+
+    try {
+      const assets = await getInventoryAssets(numericSessionId, character.id);
+      setInventory(assets);
+    } finally {
+      setInventoryLoading(false);
+    }
+  }, [character, numericSessionId]);
+
+  const refreshNightMarket = useCallback(async () => {
+    if (!character || !isNightMarketEnabled) {
+      setNightMarket([]);
+      return;
     }
 
-    refreshAttributes();
+    try {
+      const items = await getNightMarket();
+      setNightMarket(items);
+    } catch {
+      setNightMarket([]);
+    }
+  }, [character, isNightMarketEnabled]);
 
-    return () => {
-      active = false;
-    };
-  }, [activeModal, character, numericSessionId, userId]);
-
-  useEffect(() => {
-    if (!character || !userId || activeModal !== 'skills') return;
-
-    let active = true;
-    const currentCharacter = character;
-
-    async function refreshSkills() {
-      try {
-        const data = await getCharacterSkillsSheetBySessionAndUser(numericSessionId, userId, currentCharacter.id);
-
-        if (!active) return;
-        setCurrentSkills(data.values);
-        setSkillsEditable(data.editavel);
-      } catch {
-        if (active) {
-          setCurrentSkills(currentCharacter.pericias ?? {});
-          setSkillsEditable(false);
-        }
-      }
+  const refreshCommonMarket = useCallback(async () => {
+    if (!character || !isCommonMarketEnabled) {
+      setCommonMarket([]);
+      return;
     }
 
-    refreshSkills();
+    setCommonMarketLoading(true);
+    setCommonMarketError(false);
 
-    return () => {
-      active = false;
+    try {
+      const items = await getCommonMarket();
+      setCommonMarket(items);
+    } catch {
+      setCommonMarket([]);
+      setCommonMarketError(true);
+    } finally {
+      setCommonMarketLoading(false);
+    }
+  }, [character, isCommonMarketEnabled]);
+
+  const refreshSessionChat = useCallback(async () => {
+    if (!numericSessionId) return;
+
+    const messages = await getSessionChat(numericSessionId);
+    setChatMessages(messages.map(toChatMessage));
+  }, [numericSessionId]);
+
+  useEffect(() => {
+    signalRHandlersRef.current = {
+      characterId: character?.id,
+      refreshCommonMarket,
+      refreshCurrentAttributes,
+      refreshCurrentInventory,
+      refreshCurrentSkills,
+      refreshDashboard,
+      refreshNightMarket,
+      refreshSession,
+      refreshSessionChat,
     };
-  }, [activeModal, character, numericSessionId, userId]);
+  }, [
+    character?.id,
+    refreshCommonMarket,
+    refreshCurrentAttributes,
+    refreshCurrentInventory,
+    refreshCurrentSkills,
+    refreshDashboard,
+    refreshNightMarket,
+    refreshSession,
+    refreshSessionChat,
+  ]);
+
+  useEffect(() => {
+    if (!character || activeModal !== 'attributes') return;
+
+    void refreshCurrentAttributes();
+  }, [activeModal, character, refreshCurrentAttributes]);
+
+  useEffect(() => {
+    if (!character || activeModal !== 'skills') return;
+
+    void refreshCurrentSkills();
+  }, [activeModal, character, refreshCurrentSkills]);
 
   useEffect(() => {
     if (!character || activeModal !== 'inventory') return;
 
-    let active = true;
-    const currentCharacter = character;
-
-    async function refreshInventory() {
-      setInventoryLoading(true);
-
-      try {
-        const assets = await getInventoryAssets(numericSessionId, currentCharacter.id);
-
-        if (active) {
-          setInventory(assets);
-        }
-      } finally {
-        if (active) {
-          setInventoryLoading(false);
-        }
-      }
-    }
-
-    refreshInventory();
-
-    return () => {
-      active = false;
-    };
-  }, [activeModal, character, numericSessionId]);
+    void refreshCurrentInventory();
+  }, [activeModal, character, refreshCurrentInventory]);
 
   useEffect(() => {
     if (activeModal !== 'contacts') return;
@@ -335,6 +688,220 @@ export function SessionLobbyPage() {
       active = false;
     };
   }, [activeModal, numericSessionId, portraitVersion, userId]);
+
+  useEffect(() => {
+    void refreshNightMarket();
+  }, [refreshNightMarket]);
+
+  useEffect(() => {
+    void refreshSessionChat().catch(() => undefined);
+  }, [refreshSessionChat]);
+
+  useEffect(() => {
+    const stream = chatStreamRef.current;
+
+    if (!stream) return;
+
+    stream.scrollTop = stream.scrollHeight;
+  }, [chatMessages]);
+
+  useEffect(() => {
+    if (activeModal !== 'nightMarket') return;
+
+    setNightMarketFilter('');
+    setNightMarketCollapsedCategories(defaultMarketCollapsedCategories);
+    setNightMarketCollapsedWeaponGroups(defaultWeaponGroupCollapsed);
+    setMarketPurchaseMessage(null);
+    setMarketPurchaseError(false);
+  }, [activeModal]);
+
+  useEffect(() => {
+    if (!character || activeModal !== 'commonMarket') return;
+
+    setCommonMarketFilter('');
+    setCommonMarketCollapsedCategories(defaultMarketCollapsedCategories);
+    setCommonMarketCollapsedWeaponGroups(defaultWeaponGroupCollapsed);
+    setMarketPurchaseMessage(null);
+    setMarketPurchaseError(false);
+
+    void refreshCommonMarket();
+  }, [activeModal, character, refreshCommonMarket]);
+
+  useEffect(() => {
+    if (activeModal === 'nightMarket' && !isNightMarketEnabled) {
+      setActiveModal(null);
+    }
+
+    if (activeModal === 'commonMarket' && !isCommonMarketEnabled) {
+      setActiveModal(null);
+    }
+  }, [activeModal, isCommonMarketEnabled, isNightMarketEnabled]);
+
+  useEffect(() => {
+    if (!numericSessionId) return;
+
+    const connection = getChatHubConnection();
+    chatHubConnectionRef.current = connection;
+
+    function isCurrentCharacter(idPersonagem: number) {
+      const currentCharacterId = signalRHandlersRef.current.characterId;
+
+      if (!currentCharacterId) return false;
+      return Number(idPersonagem) === Number(currentCharacterId);
+    }
+
+    function isCurrentSession(sessao: unknown) {
+      const eventSessionId = getSessionEventNumber(sessao);
+
+      if (!Number.isFinite(eventSessionId)) {
+        console.info('[SignalR] Evento sem id de sessao numerico, aceitando no lobby atual.', { sessao, numericSessionId });
+
+        return true;
+      }
+
+      return eventSessionId === Number(numericSessionId);
+    }
+
+    function handleAtualizaFicha(idPersonagem: number) {
+      if (!isCurrentCharacter(idPersonagem)) return;
+
+      void signalRHandlersRef.current.refreshDashboard({ silent: true });
+    }
+
+    function handleAtualizaPericia(idPersonagem: number) {
+      if (!isCurrentCharacter(idPersonagem)) return;
+
+      void signalRHandlersRef.current.refreshCurrentSkills();
+      void signalRHandlersRef.current.refreshDashboard({ silent: true });
+    }
+
+    function handleAtualizaAtributos(idPersonagem: number) {
+      if (!isCurrentCharacter(idPersonagem)) return;
+
+      void signalRHandlersRef.current.refreshCurrentAttributes();
+      void signalRHandlersRef.current.refreshDashboard({ silent: true });
+    }
+
+    function handleAtualizaInventario(idPersonagem: number) {
+      if (!isCurrentCharacter(idPersonagem)) return;
+
+      void signalRHandlersRef.current.refreshCurrentInventory();
+    }
+
+    function handleLigarLojaNoturna(sessao: number) {
+      if (!isCurrentSession(sessao)) return;
+
+      void signalRHandlersRef.current.refreshSession();
+    }
+
+    function handleDesligarLojaNoturna(sessao: number) {
+      if (!isCurrentSession(sessao)) return;
+
+      setNightMarket([]);
+      setActiveModal((current) => (current === 'nightMarket' ? null : current));
+      void signalRHandlersRef.current.refreshSession();
+    }
+
+    function handleAtualizarLojaNoturna(sessao: number) {
+      if (!isCurrentSession(sessao)) return;
+
+      void signalRHandlersRef.current.refreshSession();
+      void signalRHandlersRef.current.refreshNightMarket();
+    }
+
+    function handleLigarLojaComun(sessao: number) {
+      if (!isCurrentSession(sessao)) return;
+
+      void signalRHandlersRef.current.refreshSession();
+    }
+
+    function handleDesligarLojaComun(sessao: number) {
+      if (!isCurrentSession(sessao)) return;
+
+      setCommonMarket([]);
+      setActiveModal((current) => (current === 'commonMarket' ? null : current));
+      void signalRHandlersRef.current.refreshSession();
+    }
+
+    function handleAtualizarLojaComun(sessao: number) {
+      if (!isCurrentSession(sessao)) return;
+
+      void signalRHandlersRef.current.refreshSession();
+      void signalRHandlersRef.current.refreshCommonMarket();
+    }
+
+    function handleNovaMensagem(sessao: unknown, dataHora: string, nomePersonagem: string, mensagem: string) {
+      console.log('[SignalR] NovaMensagem recebida na pagina', { sessao, dataHora, nomePersonagem, mensagem, numericSessionId });
+
+      if (!isCurrentSession(sessao)) {
+        console.info('[SignalR] NovaMensagem ignorada por sessao diferente', { sessao, numericSessionId });
+
+        return;
+      }
+
+      const eventKey = `${String(sessao)}|${dataHora}|${nomePersonagem}|${mensagem}`;
+
+      if (lastChatEventKeyRef.current === eventKey) {
+        return;
+      }
+
+      lastChatEventKeyRef.current = eventKey;
+
+      setChatMessages((current) => [
+        ...current,
+        {
+          id: `${Date.now()}-${current.length}`,
+          timestamp: dataHora,
+          characterName: nomePersonagem,
+          message: mensagem,
+        },
+      ]);
+    }
+
+    connection.on('AtualizaFicha', handleAtualizaFicha);
+    connection.on('AtualizaPericia', handleAtualizaPericia);
+    connection.on('AtualizaAtributos', handleAtualizaAtributos);
+    connection.on('AtualizaInventario', handleAtualizaInventario);
+    connection.on('LigarLojaNoturna', handleLigarLojaNoturna);
+    connection.on('DesligarLojaNoturna', handleDesligarLojaNoturna);
+    connection.on('AtualizarLojaNoturna', handleAtualizarLojaNoturna);
+    connection.on('LigarLojaComun', handleLigarLojaComun);
+    connection.on('DesligarLojaComun', handleDesligarLojaComun);
+    connection.on('AtualizarLojaComun', handleAtualizarLojaComun);
+    connection.on('NovaMensagem', handleNovaMensagem);
+
+    void ensureChatHubConnected()
+      .then(() => {
+        console.info('[SignalR] Conectado ao /chathub', { connectionId: connection.connectionId, numericSessionId });
+      })
+      .catch((error) => {
+        if (String(error?.message ?? error).includes('stopped during negotiation')) {
+          console.info('[SignalR] Negociacao cancelada porque a conexao anterior foi desmontada.', { numericSessionId });
+          return;
+        }
+
+        console.error('[SignalR] Falha ao conectar /chathub', error);
+      });
+
+    return () => {
+      if (chatHubConnectionRef.current === connection) {
+        chatHubConnectionRef.current = null;
+      }
+      connection.off('AtualizaFicha', handleAtualizaFicha);
+      connection.off('AtualizaPericia', handleAtualizaPericia);
+      connection.off('AtualizaAtributos', handleAtualizaAtributos);
+      connection.off('AtualizaInventario', handleAtualizaInventario);
+      connection.off('LigarLojaNoturna', handleLigarLojaNoturna);
+      connection.off('DesligarLojaNoturna', handleDesligarLojaNoturna);
+      connection.off('AtualizarLojaNoturna', handleAtualizarLojaNoturna);
+      connection.off('LigarLojaComun', handleLigarLojaComun);
+      connection.off('DesligarLojaComun', handleDesligarLojaComun);
+      connection.off('AtualizarLojaComun', handleAtualizarLojaComun);
+      connection.off('NovaMensagem', handleNovaMensagem);
+    };
+  }, [
+    numericSessionId,
+  ]);
 
   useEffect(() => {
     if (rollCooldown <= 0) return;
@@ -377,57 +944,107 @@ export function SessionLobbyPage() {
       <PageContainer>
         <div className="session-page-layout">
           <div className="session-main-stack">
-            <div className="session-dashboard-grid">
-              <Card className="session-transparent-card" style={{ marginTop: 0 }}>
-                <div className={`session-info-panel ${sessionPanelCollapsed ? 'session-info-panel-collapsed' : 'session-info-panel-expanded'}`}>
-                  <div className="session-info-toolbar">
-                    <div>
-                      <h1 className="cy-title">{session.titulo}</h1>
-                      <p style={{ margin: 0, color: 'var(--text-muted)' }}>Mestre: {session.mestre}</p>
+            <div className={`session-dashboard-grid ${briefingCollapsed ? 'session-dashboard-grid-briefing-collapsed' : 'session-dashboard-grid-briefing-expanded'}`}>
+              <div className="session-content-stack">
+                <Card className="session-transparent-card session-info-card" style={{ marginTop: 0 }}>
+                  <div className={`session-info-panel ${sessionPanelCollapsed ? 'session-info-panel-collapsed' : 'session-info-panel-expanded'}`}>
+                    <div className="session-info-toolbar">
+                      <div>
+                        <h1 className="cy-title">{session.titulo}</h1>
+                        <p style={{ margin: 0, color: 'var(--text-muted)' }}>Mestre: {session.mestre}</p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="session-panel-toggle session-panel-icon-button"
+                        aria-label={sessionPanelCollapsed ? 'Expandir sessao' : 'Minimizar sessao'}
+                        title={sessionPanelCollapsed ? 'Expandir sessao' : 'Minimizar sessao'}
+                        onClick={() => setSessionPanelCollapsed((current) => !current)}
+                      >
+                        <span className={`session-panel-toggle-icon ${sessionPanelCollapsed ? 'session-panel-toggle-icon-expand' : 'session-panel-toggle-icon-collapse'}`} aria-hidden="true" />
+                      </Button>
                     </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="session-panel-toggle session-panel-icon-button"
-                      aria-label={sessionPanelCollapsed ? 'Expandir sessao' : 'Minimizar sessao'}
-                      title={sessionPanelCollapsed ? 'Expandir sessao' : 'Minimizar sessao'}
-                      onClick={() => setSessionPanelCollapsed((current) => !current)}
-                    >
-                      <span className={`session-panel-toggle-icon ${sessionPanelCollapsed ? 'session-panel-toggle-icon-expand' : 'session-panel-toggle-icon-collapse'}`} aria-hidden="true" />
-                    </Button>
-                  </div>
 
-                  <div className="session-info-body">
-                    <div className="session-info-media">
-                      <img src={sessionCoverImage} alt="" className="session-info-image" />
-                      <div className="session-matrix-code" aria-hidden="true">
-                        {matrixLines.map((line) => (
-                          <span key={line}>{line}</span>
-                        ))}
+                    <div className={`session-info-body ${briefingCollapsed ? 'session-info-body-briefing-collapsed' : 'session-info-body-briefing-expanded'}`}>
+                      <div className="session-info-media">
+                        <img src={sessionCoverImage} alt="" className="session-info-image" />
+                        <div className="session-matrix-code" aria-hidden="true">
+                          {matrixLines.map((line) => (
+                            <span key={line}>{line}</span>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                    <div className="session-info-copy">
-                      <div className={`session-briefing-header ${briefingCollapsed ? 'session-briefing-header-collapsed' : 'session-briefing-header-expanded'}`}>
-                        <p className={`cy-subtitle session-briefing-text ${briefingCollapsed ? 'session-briefing-text-collapsed' : ''}`}>
-                          {sessionBriefing}
-                        </p>
-                        {sessionBriefing ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            className="session-briefing-toggle session-panel-icon-button"
-                            aria-label={briefingCollapsed ? 'Expandir briefing' : 'Minimizar briefing'}
-                            title={briefingCollapsed ? 'Expandir briefing' : 'Minimizar briefing'}
-                            onClick={() => setBriefingCollapsed((current) => !current)}
-                          >
-                            <span className={`session-panel-toggle-icon ${briefingCollapsed ? 'session-panel-toggle-icon-expand' : 'session-panel-toggle-icon-collapse'}`} aria-hidden="true" />
-                          </Button>
-                        ) : null}
+                      <div className="session-info-copy">
+                        <div className={`session-briefing-header ${briefingCollapsed ? 'session-briefing-header-collapsed' : 'session-briefing-header-expanded'}`}>
+                          <p className={`cy-subtitle session-briefing-text ${briefingCollapsed ? 'session-briefing-text-collapsed' : ''}`}>
+                            {sessionBriefing}
+                          </p>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              </Card>
+                </Card>
+
+                <Card className={`session-transparent-card session-chat-log-panel ${chatLogPanelCollapsed ? 'session-chat-log-panel-collapsed' : 'session-chat-log-panel-expanded'}`} style={{ marginTop: 0 }}>
+                  <div className="session-chat-log-header">
+                    <h2 className="cy-title">Chat-log</h2>
+                    <div className="session-chat-log-actions">
+                      <span className="session-chat-live-status">
+                        <i aria-hidden="true" />
+                        NO AR
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="session-panel-toggle session-panel-icon-button"
+                        aria-label={chatLogPanelCollapsed ? 'Expandir chat-log' : 'Minimizar chat-log'}
+                        title={chatLogPanelCollapsed ? 'Expandir chat-log' : 'Minimizar chat-log'}
+                        onClick={() => setChatLogPanelCollapsed((current) => !current)}
+                      >
+                        <span className={`session-panel-toggle-icon ${chatLogPanelCollapsed ? 'session-panel-toggle-icon-expand' : 'session-panel-toggle-icon-collapse'}`} aria-hidden="true" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="session-chat-log-body">
+                  <div className="session-chat-log-stream" aria-live="polite" ref={chatStreamRef}>
+                    {chatMessages.length === 0 ? (
+                      <p>Nenhuma transmissao registrada.</p>
+                    ) : (
+                      chatMessages.map((chatMessage) => (
+                        <article className="session-chat-message" key={chatMessage.id}>
+                          <p>
+                            <time>[{formatChatTimestamp(chatMessage.timestamp)}]</time>
+                            <strong>{chatMessage.characterName}:</strong>
+                            <span>{chatMessage.message}</span>
+                          </p>
+                        </article>
+                      ))
+                    )}
+                  </div>
+                  <form className="session-chat-composer" onSubmit={sendChatMessage}>
+                    <label htmlFor="session-chat-message">Mensagem</label>
+                    <div className="session-chat-input-row">
+                      <textarea
+                        id="session-chat-message"
+                        value={chatDraft}
+                        placeholder="O que você está sentindo tchum?"
+                        rows={2}
+                        onChange={(event) => setChatDraft(event.target.value)}
+                      />
+                      <div className="session-chat-tools" aria-label="Anexos e midia">
+                        <label className="session-chat-tool-button session-chat-file-button" aria-label="Adicionar imagem ou GIF" title="Imagem ou GIF">
+                          <input type="file" accept="image/*,.gif" />
+                          <span>Anexar midia</span>
+                        </label>
+                        <Button type="submit" className="session-chat-send-button" aria-label="Enviar mensagem" title="Enviar" disabled={!chatDraft.trim()}>
+                          Enviar
+                        </Button>
+                      </div>
+                    </div>
+                  </form>
+                  </div>
+                </Card>
+              </div>
 
               <div className="session-side-stack">
                 {character ? (
@@ -467,8 +1084,21 @@ export function SessionLobbyPage() {
                   </Card>
                 ) : null}
 
-                <Card className="session-transparent-card" style={{ marginTop: 0 }}>
-                  <h2 className="cy-title">Rolagens rapidas</h2>
+                <Card className={`session-transparent-card session-quick-roll-panel ${quickRollPanelCollapsed ? 'session-quick-roll-panel-collapsed' : 'session-quick-roll-panel-expanded'}`} style={{ marginTop: 0 }}>
+                  <div className="session-panel-card-toolbar">
+                    <h2 className="cy-title">Rolagens rapidas</h2>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="session-panel-toggle session-panel-icon-button"
+                      aria-label={quickRollPanelCollapsed ? 'Expandir rolagens rapidas' : 'Minimizar rolagens rapidas'}
+                      title={quickRollPanelCollapsed ? 'Expandir rolagens rapidas' : 'Minimizar rolagens rapidas'}
+                      onClick={() => setQuickRollPanelCollapsed((current) => !current)}
+                    >
+                      <span className={`session-panel-toggle-icon ${quickRollPanelCollapsed ? 'session-panel-toggle-icon-expand' : 'session-panel-toggle-icon-collapse'}`} aria-hidden="true" />
+                    </Button>
+                  </div>
+                  <div className="session-quick-roll-body">
                   <div className="dice-grid">
                     {quickDice.map((die) => (
                       <Button
@@ -500,12 +1130,25 @@ export function SessionLobbyPage() {
                       <small>d20 {quickResult.value} + {quickResult.modifier}</small>
                     ) : null}
                   </div>
+                  </div>
                 </Card>
               </div>
             </div>
 
             {character ? (
               <div className="session-actions">
+                {isNightMarketEnabled ? (
+                  <Button type="button" className="session-night-market-button" aria-label="Loja Noturna" title="Loja Noturna" onClick={() => setActiveModal('nightMarket')}>
+                    <span className="session-night-market-button-kicker">Sinal clandestino</span>
+                    <strong>Loja Noturna</strong>
+                  </Button>
+                ) : null}
+                {isCommonMarketEnabled ? (
+                  <Button type="button" className="session-common-market-button" aria-label="Equipamentos iniciais" title="Equipamentos iniciais" onClick={() => setActiveModal('commonMarket')}>
+                    <span className="session-night-market-button-kicker">Sinal clandestino</span>
+                    <strong>Comprar Equipamentos</strong>
+                  </Button>
+                ) : null}
                 <Button type="button" className="session-icon-button" aria-label="Contatos" title="Contatos" onClick={() => setActiveModal('contacts')}>
                   <span className="session-action-icon session-action-icon-contacts" aria-hidden="true" />
                 </Button>
@@ -536,13 +1179,13 @@ export function SessionLobbyPage() {
                 padding: '0.85rem 1rem',
               }}
             >
-              Voltar para sessoes
+              Sair da sessão
             </Button>
           </Link>
         </div>
 
         {character && activeModal ? (
-          <Modal maxWidth={activeModal === 'attributes' || activeModal === 'skills' ? 720 : 900}>
+          <Modal maxWidth={activeModal === 'skills' ? 960 : activeModal === 'attributes' ? 720 : activeModal === 'nightMarket' || activeModal === 'commonMarket' ? 1080 : 900}>
             <div className="sheet-modal-stack">
               <Button
                 type="button"
@@ -558,6 +1201,7 @@ export function SessionLobbyPage() {
                 <CharacterSummary
                   character={character}
                   allowPortraitUpload
+                  allowBriefingUpdate
                   portraitVersion={portraitVersion}
                   onPortraitUpdated={() => setPortraitVersion(Date.now())}
                 />
@@ -605,6 +1249,136 @@ export function SessionLobbyPage() {
                           </div>
                         </div>
                       ))}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+              {activeModal === 'nightMarket' ? (
+                <div className="night-market-modal">
+                  <div className="night-market-header">
+                    <div>
+                      <span>Transmissao ilegal ativa</span>
+                      <h2 className="cy-title">Loja Noturna</h2>
+                    </div>
+                    <strong>{filteredNightMarket.length} itens</strong>
+                  </div>
+                  <div className="common-market-content">
+                    {marketPurchaseMessage ? (
+                      <p className={`market-purchase-message ${marketPurchaseError ? 'market-purchase-message-error' : 'market-purchase-message-success'}`}>
+                        {marketPurchaseMessage}
+                      </p>
+                    ) : null}
+                    <div className="common-market-filter">
+                      <Input
+                        type="search"
+                        value={nightMarketFilter}
+                        placeholder="Filtrar item por nome, tipo, preco ou detalhe"
+                        aria-label="Filtrar item da loja noturna"
+                        onChange={(event) => setNightMarketFilter(event.target.value)}
+                      />
+                    </div>
+                    {filteredNightMarket.length === 0 ? (
+                      <p className="cy-subtitle">Nenhum item encontrado.</p>
+                    ) : (
+                      <div className="common-market-category-stack">
+                        {marketCategories.map((category) => {
+                          const items = getItemsByCategory(filteredNightMarket, category);
+                          const collapsed = nightMarketCollapsedCategories[category];
+
+                          if (items.length === 0) return null;
+
+                          return (
+                            <section className="common-market-category" key={category}>
+                              <button
+                                type="button"
+                                className="common-market-category-header"
+                                aria-expanded={!collapsed}
+                                onClick={() => toggleNightMarketCategory(category)}
+                              >
+                                <span className={`common-market-category-chevron ${collapsed ? '' : 'common-market-category-chevron-open'}`} aria-hidden="true" />
+                                <h3>{category}</h3>
+                                <span>{items.length} itens</span>
+                              </button>
+                              {!collapsed ? (
+                                items.length > 0 ? (
+                                  renderMarketCategoryItems(items, category, 'night')
+                                ) : (
+                                  <p className="cy-subtitle">Nenhum item nesta categoria para o filtro atual.</p>
+                                )
+                              ) : null}
+                            </section>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+              {activeModal === 'commonMarket' ? (
+                <div className="night-market-modal">
+                  <div className="night-market-header">
+                    <div>
+                      <span>Catalogo de campanha</span>
+                      <h2 className="cy-title">Equipamentos iniciais</h2>
+                    </div>
+                    <strong>{filteredCommonMarket.length} itens</strong>
+                  </div>
+                  {commonMarketLoading ? (
+                    <p className="cy-subtitle">Carregando equipamentos...</p>
+                  ) : commonMarketError ? (
+                    <p className="cy-subtitle">Nao foi possivel carregar a loja comum.</p>
+                  ) : commonMarket.length === 0 ? (
+                    <p className="cy-subtitle">Nenhum equipamento disponivel.</p>
+                  ) : (
+                    <div className="common-market-content">
+                      {marketPurchaseMessage ? (
+                        <p className={`market-purchase-message ${marketPurchaseError ? 'market-purchase-message-error' : 'market-purchase-message-success'}`}>
+                          {marketPurchaseMessage}
+                        </p>
+                      ) : null}
+                      <div className="common-market-filter">
+                        <Input
+                          type="search"
+                          value={commonMarketFilter}
+                          placeholder="Filtrar item por nome, tipo, preco ou detalhe"
+                          aria-label="Filtrar item"
+                          onChange={(event) => setCommonMarketFilter(event.target.value)}
+                        />
+                      </div>
+                      {filteredCommonMarket.length === 0 ? (
+                        <p className="cy-subtitle">Nenhum item encontrado.</p>
+                      ) : (
+                        <div className="common-market-category-stack">
+                          {marketCategories.map((category) => {
+                            const items = getItemsByCategory(filteredCommonMarket, category);
+                            const collapsed = commonMarketCollapsedCategories[category];
+
+                            if (items.length === 0) return null;
+
+                            return (
+                              <section className="common-market-category" key={category}>
+                                <button
+                                  type="button"
+                                  className="common-market-category-header"
+                                  aria-expanded={!collapsed}
+                                  onClick={() => toggleCommonMarketCategory(category)}
+                                >
+                                  <span className={`common-market-category-chevron ${collapsed ? '' : 'common-market-category-chevron-open'}`} aria-hidden="true" />
+                                  <h3>{category}</h3>
+                                  <span>{items.length} itens</span>
+                                </button>
+                                {!collapsed ? (
+                                  items.length > 0 ? (
+                                    renderMarketCategoryItems(items, category, 'common')
+                                  ) : (
+                                    <p className="cy-subtitle">Nenhum item nesta categoria para o filtro atual.</p>
+                                  )
+                                ) : null}
+                              </section>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

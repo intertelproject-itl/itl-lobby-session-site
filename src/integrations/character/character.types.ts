@@ -51,13 +51,31 @@ export type Character = {
 
 export type CharacterDetails = Character & {
   atributos?: Record<string, number>;
-  pericias?: Record<string, number>;
+  pericias?: SkillSheetValues;
 };
 
 export type SheetData = {
   values: Record<string, number>;
   editavel: boolean;
 };
+
+export type SkillSheetRow = {
+  id: string;
+  key: string;
+  baseKey: string;
+  categoryKey: string;
+  label: string;
+  category: string;
+  base: number;
+  nivel: number;
+  editable: boolean;
+  nivelKey: string;
+  categoryFields: Record<string, unknown>;
+};
+
+export type SkillSheetValues = Record<string, number> | SkillSheetRow[];
+
+export type SkillUpdatePayload = Record<string, unknown>;
 
 export type CreateCharacterRequest = {
   usuarioId?: number;
@@ -90,4 +108,8 @@ export type SkillPayload = Record<string, number>;
 
 export type UpdateSheetPayload = Record<string, number> & {
   idPersonagem: number;
+};
+
+export type UpdateCharacterBriefingPayload = {
+  briefing: string | null;
 };

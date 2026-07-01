@@ -2,7 +2,7 @@ import { apiClient } from '../http/apiClient';
 import '../http/authInterceptor';
 import { Character } from '../character/character.types';
 import { normalizeCharacter } from '../character/character.api';
-import { PublicSession } from './sessions.types';
+import { PublicSession, SessionChatMessage } from './sessions.types';
 
 export async function getPublicSessions() {
   const { data } = await apiClient.get<PublicSession | PublicSession[]>('/SessaoJogatina/publicas');
@@ -31,4 +31,15 @@ export async function accessPublicSession(sessionId: number, suppressNonTimeoutE
 export async function getSessionPeople(sessionId: number) {
   const { data } = await apiClient.get<Character[]>(`/SessaoJogatina/${sessionId}/pessoas`);
   return data.map(normalizeCharacter);
+}
+
+export async function getSessionChat(sessionId: number) {
+  const { data } = await apiClient.get<SessionChatMessage[]>(`/SessaoJogatina/${sessionId}/chat`);
+  return data;
+}
+
+export async function sendSessionChatMessage(sessionId: number, characterName: string, message: string) {
+  await apiClient.post(`/SessaoJogatina/${sessionId}/chat/${encodeURIComponent(characterName)}`, undefined, {
+    params: { mensagem: message },
+  });
 }

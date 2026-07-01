@@ -4,6 +4,7 @@ import { LoginPage } from '../../pages/auth/LoginPage';
 import { RegisterPage } from '../../pages/auth/RegisterPage';
 import { PublicSessionsPage } from '../../pages/sessions/PublicSessionsPage';
 import { SessionLobbyPage } from '../../pages/sessions/SessionLobbyPage';
+import { MasterControlPage } from '../../pages/sessions/MasterControlPage';
 import { CharacterCreationPage } from '../../pages/character/CharacterCreationPage';
 import { CharacterSheetPage } from '../../pages/character/CharacterSheetPage';
 import { InventoryPage } from '../../pages/inventory/InventoryPage';
@@ -19,6 +20,16 @@ export const router = createBrowserRouter([
   {
     path: '/cadastro',
     element: <RegisterPage />,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: '/mestre',
+    element: <MasterControlPage />,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: '/mestre/:sessionId',
+    element: <MasterControlPage />,
     errorElement: <ErrorPage />,
   },
   {

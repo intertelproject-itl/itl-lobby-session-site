@@ -6,11 +6,15 @@ import {
   CharacterDetails,
   CreateCharacterRequest,
   SheetData,
+  SkillSheetRow,
+  SkillUpdatePayload,
+  SkillSheetValues,
   SkillPayload,
+  UpdateCharacterBriefingPayload,
   UpdateSheetPayload,
 } from './character.types';
 
-const ignoredSheetKeys = new Set(['idAtributo', 'idPericia', 'idPersonagem', 'personagem', 'editavel']);
+const ignoredSheetKeys = new Set(['idAtributo', 'idPericia', 'idSessao', 'idPersonagem', 'personagem', 'editavel', 'dataCriacao', 'dataMudanca']);
 
 function toNumber(value: unknown) {
   const numberValue = Number(value);
@@ -60,6 +64,58 @@ function toSheetData(payload: Record<string, unknown>): SheetData {
   };
 }
 
+function capitalizeLabel(label: string) {
+  const withSpaces = label.replace(/([A-Z])/g, ' $1').trim();
+  return withSpaces ? withSpaces.charAt(0).toUpperCase() + withSpaces.slice(1) : withSpaces;
+}
+
+function formatSkillCategoryLabel(category: string) {
+  return capitalizeLabel(category.replace(/^pericias/i, ''));
+}
+
+function toSkillSheetData(payload: Record<string, unknown>): { values: SkillSheetValues; editavel: boolean } {
+  const categoryEntries = Object.entries(payload).filter(
+    ([, value]) => typeof value === 'object' && value !== null && !Array.isArray(value)
+  );
+
+  if (categoryEntries.length === 0) {
+    return toSheetData(payload);
+  }
+
+  const rows = categoryEntries.flatMap(([categoryKey, categoryValue]) => {
+    const category = categoryValue as Record<string, unknown>;
+    const categoryEditable = isEditable(category.editavel);
+
+    return Object.entries(category)
+      .filter(([key, value]) => key.endsWith('Base') && value !== null && value !== undefined)
+      .map(([baseKey, baseValue]): SkillSheetRow => {
+        const key = baseKey.slice(0, -'Base'.length);
+        const nivelKey = `${key}Nivel`;
+
+        return {
+          id: `${categoryKey}.${key}`,
+          key,
+          baseKey,
+          categoryKey,
+          label: capitalizeLabel(key),
+          category: formatSkillCategoryLabel(categoryKey),
+          base: toNumber(baseValue),
+          nivel: toNumber(category[nivelKey]),
+          editable: categoryEditable,
+          nivelKey,
+          categoryFields: Object.fromEntries(
+            Object.entries(category).filter(([fieldKey]) => ignoredSheetKeys.has(fieldKey))
+          ),
+        };
+      });
+  });
+
+  return {
+    values: rows,
+    editavel: rows.some((row) => row.editable),
+  };
+}
+
 function isTimeoutError(error: unknown) {
   return Boolean(
     typeof error === 'object' &&
@@ -91,31 +147,31 @@ export async function getCharacterBySessionAndUser(sessionId: number, userId: nu
   }
 }
 
-export async function getCharacterAttributesSheetBySessionAndUser(sessionId: number, userId: number, characterId?: number) {
-  const { data } = await apiClient.get<Record<string, unknown>>(`/SessaoJogatina/${sessionId}/atributos/${userId}`, {
-    params: characterId ? { idPersonagem: characterId } : undefined,
+export async function getCharacterAttributesSheetBySessionAndCharacter(sessionId: number, characterId: number) {
+  const { data } = await apiClient.get<Record<string, unknown>>(`/SessaoJogatina/${sessionId}/atributos/${characterId}`, {
+    params: { idPersonagem: characterId },
     suppressNonTimeoutError: true,
   });
 
   return toSheetData(data);
 }
 
-export async function getCharacterAttributesBySessionAndUser(sessionId: number, userId: number, characterId?: number) {
-  const data = await getCharacterAttributesSheetBySessionAndUser(sessionId, userId, characterId);
+export async function getCharacterAttributesBySessionAndCharacter(sessionId: number, characterId: number) {
+  const data = await getCharacterAttributesSheetBySessionAndCharacter(sessionId, characterId);
   return data.values;
 }
 
-export async function getCharacterSkillsSheetBySessionAndUser(sessionId: number, userId: number, characterId?: number) {
-  const { data } = await apiClient.get<Record<string, unknown>>(`/SessaoJogatina/${sessionId}/pericias/${userId}`, {
-    params: characterId ? { idPersonagem: characterId } : undefined,
+export async function getCharacterSkillsSheetBySessionAndCharacter(sessionId: number, characterId: number) {
+  const { data } = await apiClient.get<Record<string, unknown>>(`/SessaoJogatina/${sessionId}/pericias/${characterId}`, {
+    params: { idPersonagem: characterId },
     suppressNonTimeoutError: true,
   });
 
-  return toSheetData(data);
+  return toSkillSheetData(data);
 }
 
-export async function getCharacterSkillsBySessionAndUser(sessionId: number, userId: number, characterId?: number) {
-  const data = await getCharacterSkillsSheetBySessionAndUser(sessionId, userId, characterId);
+export async function getCharacterSkillsBySessionAndCharacter(sessionId: number, characterId: number) {
+  const data = await getCharacterSkillsSheetBySessionAndCharacter(sessionId, characterId);
   return data.values;
 }
 
@@ -127,11 +183,11 @@ export async function getCharacterSheetBySessionAndUser(sessionId: number, userI
   }
 
   const [atributos, pericias] = await Promise.all([
-    getCharacterAttributesBySessionAndUser(sessionId, userId, character.id).catch((error) => {
+    getCharacterAttributesBySessionAndCharacter(sessionId, character.id).catch((error) => {
       if (isTimeoutError(error)) throw error;
       return {};
     }),
-    getCharacterSkillsBySessionAndUser(sessionId, userId).catch((error) => {
+    getCharacterSkillsBySessionAndCharacter(sessionId, character.id).catch((error) => {
       if (isTimeoutError(error)) throw error;
       return {};
     }),
@@ -158,7 +214,7 @@ export async function updateCharacterAttributes(payload: UpdateSheetPayload) {
   return data;
 }
 
-export async function updateCharacterSkills(payload: UpdateSheetPayload) {
+export async function updateCharacterSkills(payload: SkillUpdatePayload) {
   const { data } = await apiClient.put<void>('/Personagem/pericias', payload);
   return data;
 }
@@ -168,6 +224,13 @@ export async function updateCharacterPortrait(characterId: number, sessionId: nu
   formData.append('portrait', file);
 
   const { data } = await apiClient.put<void>(`/Personagem/retrato/${characterId}/${sessionId}`, formData);
+  return data;
+}
+
+export async function updateCharacterBriefing(characterId: number, briefing: string) {
+  const payload: UpdateCharacterBriefingPayload = { briefing };
+  const { data } = await apiClient.put<void>(`/Personagem/briefing/${characterId}`, payload);
+
   return data;
 }
 
