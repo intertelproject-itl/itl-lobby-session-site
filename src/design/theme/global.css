@@ -1358,6 +1358,318 @@ img { max-width: 100%; display: block; }
   align-self: end;
 }
 
+.market-wallet {
+  display: grid;
+  gap: 0.18rem;
+  justify-items: end;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.market-wallet strong {
+  color: var(--primary);
+  font-size: 1rem;
+}
+
+.inventory-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.inventory-panel-header,
+.inventory-category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.inventory-panel-header h3,
+.inventory-category-header h4 {
+  margin: 0;
+}
+
+.inventory-panel-header span,
+.inventory-category-header span {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.inventory-category-stack {
+  display: grid;
+  gap: 1rem;
+}
+
+.inventory-category {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.inventory-category-header {
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid rgba(255, 208, 0, 0.18);
+}
+
+.inventory-category-header h4 {
+  color: var(--primary);
+  font-size: 0.9rem;
+  text-transform: uppercase;
+}
+
+.inventory-item-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0.65rem;
+}
+
+.inventory-item-tile {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 0.65rem;
+  align-items: center;
+  padding: 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(34, 197, 94, 0.05));
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.inventory-item-tile:hover {
+  border-color: rgba(255, 208, 0, 0.42);
+}
+
+.inventory-item-image {
+  width: 54px;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(255, 208, 0, 0.2);
+  border-radius: 6px;
+  background: rgba(6, 6, 6, 0.38);
+}
+
+.inventory-item-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.inventory-item-image i {
+  width: 22px;
+  aspect-ratio: 1;
+  border: 2px solid rgba(255, 208, 0, 0.58);
+  transform: rotate(45deg);
+}
+
+.inventory-item-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.inventory-item-copy strong,
+.inventory-item-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inventory-item-copy small {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.inventory-detail-modal {
+  display: grid;
+  gap: 1rem;
+}
+
+.inventory-detail-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.inventory-detail-header span {
+  color: var(--primary);
+  font-size: 0.72rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.inventory-detail-body {
+  display: grid;
+  grid-template-columns: minmax(190px, 0.8fr) minmax(0, 1.2fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.inventory-detail-visual {
+  display: grid;
+  min-height: 100%;
+  padding: 0.6rem;
+  border: 1px solid rgba(255, 208, 0, 0.18);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(255, 208, 0, 0.08), transparent 40%),
+    rgba(6, 6, 6, 0.34);
+}
+
+.inventory-detail-image {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border: 1px solid rgba(255, 208, 0, 0.24);
+  border-radius: 6px;
+  background: rgba(6, 6, 6, 0.48);
+}
+
+.inventory-detail-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem 0.7rem;
+  margin: 0;
+}
+
+.inventory-detail-list div {
+  min-width: 0;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.inventory-detail-list dt {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.inventory-detail-list dd {
+  margin: 0.2rem 0 0;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+
+.inventory-delivery-panel {
+  display: grid;
+  gap: 0.8rem;
+  padding: 0.85rem;
+  border: 1px solid rgba(255, 208, 0, 0.18);
+  border-radius: 8px;
+  background: rgba(6, 6, 6, 0.28);
+}
+
+.inventory-delivery-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(160px, 220px);
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.inventory-delivery-header div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.inventory-delivery-header strong {
+  color: var(--text);
+  font-size: 0.9rem;
+  text-transform: uppercase;
+}
+
+.inventory-delivery-header span,
+.inventory-transfer-message {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.inventory-contact-picker {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.55rem;
+}
+
+.inventory-contact-card {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: center;
+  padding: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.inventory-contact-card-selected {
+  border-color: rgba(255, 208, 0, 0.7);
+  background: rgba(255, 208, 0, 0.08);
+}
+
+.inventory-contact-card img {
+  width: 42px;
+  aspect-ratio: 1;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.inventory-contact-card span {
+  min-width: 0;
+  display: grid;
+  gap: 0.1rem;
+}
+
+.inventory-contact-card strong,
+.inventory-contact-card small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inventory-contact-card small {
+  color: var(--text-muted);
+}
+
+.inventory-duplicate-option {
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.inventory-duplicate-option input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+}
+
+@media (max-width: 760px) {
+  .inventory-detail-body,
+  .inventory-delivery-header {
+    grid-template-columns: 1fr;
+  }
+
+  .inventory-detail-list {
+    grid-template-columns: 1fr;
+  }
+}
+
 .session-back-link {
   display: block;
   margin-top: auto;
