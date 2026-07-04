@@ -413,14 +413,14 @@ export function SessionLobbyPage() {
   }
 
   function rollSheetValue(label: string, value: number) {
-    const d20 = Math.floor(Math.random() * 20) + 1;
+    const d10 = Math.floor(Math.random() * 10) + 1;
 
     const nextRoll = {
-      die: 20,
-      value: d20,
+      die: 10,
+      value: d10,
       modifier: value,
       label,
-      total: d20 + value,
+      total: d10 + value,
     };
 
     playDiceRollSound();
