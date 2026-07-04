@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import type { HubConnection } from '@microsoft/signalr';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { AppShell } from '../../design/components/layout/AppShell';
 import { PageContainer } from '../../design/components/layout/PageContainer';
 import { AttributeGrid } from '../../design/components/character/AttributeGrid';
 import { CharacterSummary } from '../../design/components/character/CharacterSummary';
 import { InventoryGallery } from '../../design/components/character/InventoryGallery';
+import { InventoryItemDetails } from '../../design/components/character/InventoryItemDetails';
 import { SkillList } from '../../design/components/character/SkillList';
 import { Button } from '../../design/components/ui/Button';
 import { Card } from '../../design/components/ui/Card';
@@ -158,6 +158,7 @@ export function SessionLobbyPage() {
   const [showUpdateSuccess, setShowUpdateSuccess] = useState(false);
   const [inventory, setInventory] = useState<InventoryAsset[]>([]);
   const [inventoryLoading, setInventoryLoading] = useState(false);
+  const [selectedInventoryItem, setSelectedInventoryItem] = useState<InventoryAsset | null>(null);
   const [contacts, setContacts] = useState<Character[]>([]);
   const [contactPortraits, setContactPortraits] = useState<Record<string, string>>({});
   const [contactsLoading, setContactsLoading] = useState(false);
@@ -179,7 +180,6 @@ export function SessionLobbyPage() {
   const [portraitVersion, setPortraitVersion] = useState(0);
   const diceRollAudioRef = useRef<HTMLAudioElement | null>(null);
   const chatStreamRef = useRef<HTMLDivElement | null>(null);
-  const chatHubConnectionRef = useRef<HubConnection | null>(null);
   const lastChatEventKeyRef = useRef<string | null>(null);
   const signalRHandlersRef = useRef({
     characterId: undefined as number | undefined,
@@ -197,12 +197,14 @@ export function SessionLobbyPage() {
   const commonMarketStatus = session?.loja_comun ?? session?.lojaComun;
   const isNightMarketEnabled = Number(nightMarketStatus) === 1 || nightMarketStatus === true;
   const isCommonMarketEnabled = Number(commonMarketStatus) === 1 || commonMarketStatus === true;
+  const characterCredits = Number(character?.dinheiro ?? 0);
   const sessionBriefing = formatMultilineText(session?.Briefing ?? session?.briefing ?? session?.resumo);
   const criticalStats = character ? [
     { label: 'HP', current: character.hpAtual, maximum: character.hpMaximo },
     { label: 'Armadura', current: character.protecaoArmaduraAtual, maximum: character.protecaoArmaduraMaximo },
     { label: 'Sorte', current: character.sorteAtual, maximum: character.sorteMaxima },
     { label: 'Humanidade', current: character.humanidadeAtual, maximum: character.humanidadeMaxima },
+    { label: 'Creditos', current: formatNightMarketPrice(characterCredits), maximum: null },
   ] : [];
   const criticalInjuries = character?.ferimentosCriticos ?? '...';
   const filteredNightMarket = useMemo(() => {
@@ -221,7 +223,13 @@ export function SessionLobbyPage() {
   }
 
   function formatNightMarketPrice(value: unknown) {
-    return typeof value === 'number' && Number.isFinite(value) ? `${value.toLocaleString('pt-BR')} eb` : '-';
+    const numberValue = Number(value);
+    return Number.isFinite(numberValue) ? `${numberValue.toLocaleString('pt-BR')} eb` : '-';
+  }
+
+  function canAffordMarketItem(item: NightMarketDisplayItem) {
+    const price = Number(item.preco);
+    return !Number.isFinite(price) || price <= characterCredits;
   }
 
   function getNightMarketRarityClass(rarity?: string | null) {
@@ -261,7 +269,7 @@ export function SessionLobbyPage() {
   }
 
   async function buyMarketItem(item: NightMarketDisplayItem, market: MarketKind) {
-    if (!character || buyingMarketItemId) return;
+    if (!character || buyingMarketItemId || !canAffordMarketItem(item)) return;
 
     const purchaseId = `${market}-${item.displayId}`;
     setBuyingMarketItemId(purchaseId);
@@ -283,6 +291,7 @@ export function SessionLobbyPage() {
       }
 
       setMarketPurchaseMessage(`${item.nome} comprado com sucesso.`);
+      void refreshDashboard({ silent: true });
     } catch {
       setMarketPurchaseMessage(`Nao foi possivel comprar ${item.nome}.`);
       setMarketPurchaseError(true);
@@ -300,6 +309,8 @@ export function SessionLobbyPage() {
   }
 
   function renderMarketItem(item: NightMarketDisplayItem, market: MarketKind) {
+    const canAfford = canAffordMarketItem(item);
+
     return (
       <article className={`night-market-item ${getNightMarketRarityClass(item.raridade)}`} key={item.displayId}>
         <div className="night-market-item-header">
@@ -326,10 +337,11 @@ export function SessionLobbyPage() {
         <Button
           type="button"
           className="market-buy-button"
-          disabled={buyingMarketItemId !== null}
+          disabled={buyingMarketItemId !== null || !canAfford}
+          title={canAfford ? 'Comprar' : 'Creditos insuficientes'}
           onClick={() => buyMarketItem(item, market)}
         >
-          {buyingMarketItemId === `${market}-${item.displayId}` ? 'Comprando...' : 'Comprar'}
+          {buyingMarketItemId === `${market}-${item.displayId}` ? 'Comprando...' : canAfford ? 'Comprar' : 'Creditos insuficientes'}
         </Button>
       </article>
     );
@@ -655,6 +667,12 @@ export function SessionLobbyPage() {
   }, [activeModal, character, refreshCurrentInventory]);
 
   useEffect(() => {
+    if (activeModal !== 'inventory') {
+      setSelectedInventoryItem(null);
+    }
+  }, [activeModal]);
+
+  useEffect(() => {
     if (activeModal !== 'contacts') return;
 
     let active = true;
@@ -741,7 +759,6 @@ export function SessionLobbyPage() {
     if (!numericSessionId) return;
 
     const connection = getChatHubConnection();
-    chatHubConnectionRef.current = connection;
 
     function isCurrentCharacter(idPersonagem: number) {
       const currentCharacterId = signalRHandlersRef.current.characterId;
@@ -830,8 +847,19 @@ export function SessionLobbyPage() {
       void signalRHandlersRef.current.refreshCommonMarket();
     }
 
-    function handleNovaMensagem(sessao: unknown, dataHora: string, nomePersonagem: string, mensagem: string) {
-      console.log('[SignalR] NovaMensagem recebida na pagina', { sessao, dataHora, nomePersonagem, mensagem, numericSessionId });
+    function handleNovaMensagem(sessao: unknown, dataHora: string, nomePersonagem?: string, mensagem?: string) {
+      const hasTimestampPayload = mensagem !== undefined;
+      const eventTimestamp = hasTimestampPayload ? dataHora : new Date().toISOString();
+      const eventCharacterName = hasTimestampPayload ? nomePersonagem ?? 'Sistema' : dataHora;
+      const eventMessage = hasTimestampPayload ? mensagem ?? '' : nomePersonagem ?? '';
+
+      console.log('[SignalR] NovaMensagem recebida na pagina', {
+        sessao,
+        dataHora: eventTimestamp,
+        nomePersonagem: eventCharacterName,
+        mensagem: eventMessage,
+        numericSessionId,
+      });
 
       if (!isCurrentSession(sessao)) {
         console.info('[SignalR] NovaMensagem ignorada por sessao diferente', { sessao, numericSessionId });
@@ -839,7 +867,7 @@ export function SessionLobbyPage() {
         return;
       }
 
-      const eventKey = `${String(sessao)}|${dataHora}|${nomePersonagem}|${mensagem}`;
+      const eventKey = `${String(sessao)}|${eventTimestamp}|${eventCharacterName}|${eventMessage}`;
 
       if (lastChatEventKeyRef.current === eventKey) {
         return;
@@ -851,9 +879,9 @@ export function SessionLobbyPage() {
         ...current,
         {
           id: `${Date.now()}-${current.length}`,
-          timestamp: dataHora,
-          characterName: nomePersonagem,
-          message: mensagem,
+          timestamp: eventTimestamp,
+          characterName: eventCharacterName,
+          message: eventMessage,
         },
       ]);
     }
@@ -884,9 +912,6 @@ export function SessionLobbyPage() {
       });
 
     return () => {
-      if (chatHubConnectionRef.current === connection) {
-        chatHubConnectionRef.current = null;
-      }
       connection.off('AtualizaFicha', handleAtualizaFicha);
       connection.off('AtualizaPericia', handleAtualizaPericia);
       connection.off('AtualizaAtributos', handleAtualizaAtributos);
@@ -1032,10 +1057,6 @@ export function SessionLobbyPage() {
                         onChange={(event) => setChatDraft(event.target.value)}
                       />
                       <div className="session-chat-tools" aria-label="Anexos e midia">
-                        <label className="session-chat-tool-button session-chat-file-button" aria-label="Adicionar imagem ou GIF" title="Imagem ou GIF">
-                          <input type="file" accept="image/*,.gif" />
-                          <span>Anexar midia</span>
-                        </label>
                         <Button type="submit" className="session-chat-send-button" aria-label="Enviar mensagem" title="Enviar" disabled={!chatDraft.trim()}>
                           Enviar
                         </Button>
@@ -1070,7 +1091,7 @@ export function SessionLobbyPage() {
                               <span>{stat.label}</span>
                               <strong>
                                 {formatCriticalValue(stat.current)}
-                                <small> / {formatCriticalValue(stat.maximum)}</small>
+                                {stat.maximum !== null ? <small> / {formatCriticalValue(stat.maximum)}</small> : null}
                               </strong>
                             </div>
                           ))}
@@ -1227,7 +1248,17 @@ export function SessionLobbyPage() {
                 />
               ) : null}
               {activeModal === 'inventory' ? (
-                <InventoryGallery assets={inventory} loading={inventoryLoading} onSelect={() => undefined} />
+                selectedInventoryItem ? (
+                  <InventoryItemDetails
+                    asset={selectedInventoryItem}
+                    character={character}
+                    sessionId={numericSessionId}
+                    onBack={() => setSelectedInventoryItem(null)}
+                    onTransferred={() => void refreshCurrentInventory()}
+                  />
+                ) : (
+                  <InventoryGallery assets={inventory} loading={inventoryLoading} onSelect={setSelectedInventoryItem} />
+                )
               ) : null}
               {activeModal === 'contacts' ? (
                 <div>
@@ -1260,7 +1291,10 @@ export function SessionLobbyPage() {
                       <span>Transmissao ilegal ativa</span>
                       <h2 className="cy-title">Loja Noturna</h2>
                     </div>
-                    <strong>{filteredNightMarket.length} itens</strong>
+                    <div className="market-wallet">
+                      <strong>{formatNightMarketPrice(characterCredits)}</strong>
+                      <span>{filteredNightMarket.length} itens</span>
+                    </div>
                   </div>
                   <div className="common-market-content">
                     {marketPurchaseMessage ? (
@@ -1321,7 +1355,10 @@ export function SessionLobbyPage() {
                       <span>Catalogo de campanha</span>
                       <h2 className="cy-title">Equipamentos iniciais</h2>
                     </div>
-                    <strong>{filteredCommonMarket.length} itens</strong>
+                    <div className="market-wallet">
+                      <strong>{formatNightMarketPrice(characterCredits)}</strong>
+                      <span>{filteredCommonMarket.length} itens</span>
+                    </div>
                   </div>
                   {commonMarketLoading ? (
                     <p className="cy-subtitle">Carregando equipamentos...</p>

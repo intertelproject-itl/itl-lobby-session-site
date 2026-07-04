@@ -326,10 +326,6 @@ export function MasterControlPage() {
                 <div className="session-chat-input-row">
                   <textarea id="master-chat-message" placeholder="Mensagem global da mesa" rows={2} />
                   <div className="session-chat-tools" aria-label="Anexos e midia">
-                    <label className="session-chat-tool-button session-chat-file-button" aria-label="Adicionar imagem ou GIF" title="Imagem ou GIF">
-                      <input type="file" accept="image/*,.gif" />
-                      <span>Anexar midia</span>
-                    </label>
                     <Button type="button" className="session-chat-send-button" aria-label="Enviar mensagem" title="Enviar">
                       Enviar
                     </Button>
